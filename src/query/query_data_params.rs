@@ -1,0 +1,295 @@
+use crate::ecs::component::Component;
+use crate::reactivity::changed::{ChangedState, Mut};
+use crate::world::archetypes::ComponentColumnWrite;
+use crate::world::archetypes::{ComponentColumnRead, EntitiesRead};
+use crate::{entity::Entity, query::QueryData, system::AccessVec, world::archetypes::Archetype};
+
+use std::{any::TypeId, marker::PhantomData};
+
+impl<T: Component> QueryData for &T {
+    type Item<'w> = &'w T;
+    type ReadOnlyItem<'w> = &'w T;
+    type Fetch<'w> = ComponentColumnRead<'w, T>;
+
+    fn matches(archetype: &Archetype) -> bool {
+        archetype.contains_column::<T>()
+    }
+    fn collect_access(
+        reads: &mut AccessVec<std::any::TypeId>,
+        _writes: &mut AccessVec<std::any::TypeId>,
+    ) {
+        reads.push(TypeId::of::<T>());
+    }
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        archetype.column::<T>()
+    }
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+        unsafe { &*fetch.as_ptr().add(index) }
+    }
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        unsafe { &*fetch.as_ptr().add(index) }
+    }
+}
+
+impl<T: Component> QueryData for &mut T {
+    type Item<'w> = Mut<'w, T>;
+    type ReadOnlyItem<'w> = &'w T;
+    type Fetch<'w> = (
+        ComponentColumnWrite<'w, T>,
+        Option<ComponentColumnWrite<'w, ChangedState<T>>>,
+    );
+
+    fn matches(archetype: &Archetype) -> bool {
+        archetype.contains_column::<T>()
+    }
+
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        let data_writer = archetype.column_mut::<T>();
+        let marker_writer_opt = archetype.get_column_mut::<ChangedState<T>>();
+
+        if let Some(marker_writer) = marker_writer_opt {
+            (data_writer, Some(marker_writer))
+        } else {
+            (data_writer, None)
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+        let val_ptr = fetch.0.as_ptr() as *mut T;
+
+        let final_marker = fetch
+            .1
+            .as_ref()
+            .map(|marker_column| unsafe {
+                (marker_column.as_ptr() as *mut ChangedState<T>).add(index)
+            })
+            .unwrap_or(std::ptr::null_mut());
+
+        unsafe {
+            Mut {
+                value: val_ptr.add(index),
+                changed_state: final_marker,
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        unsafe { &*fetch.0.as_ptr().add(index) }
+    }
+
+    fn collect_access(_reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>) {
+        writes.push(TypeId::of::<T>());
+        writes.push(TypeId::of::<ChangedState<T>>());
+    }
+}
+
+impl QueryData for Entity {
+    type Item<'w> = &'w Entity;
+    type ReadOnlyItem<'w> = &'w Entity;
+    type Fetch<'w> = EntitiesRead<'w>;
+
+    fn matches(_archetype: &Archetype) -> bool {
+        true
+    }
+    fn collect_access(_reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {}
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        archetype.entities()
+    }
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+        unsafe { &*fetch.as_ptr().add(index) }
+    }
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        unsafe { &*fetch.as_ptr().add(index) }
+    }
+}
+
+impl<T: Component> QueryData for Option<&T> {
+    type Item<'w> = Option<&'w T>;
+    type ReadOnlyItem<'w> = Option<&'w T>;
+    type Fetch<'w> = Option<ComponentColumnWrite<'w, T>>;
+
+    fn matches(_archetype: &Archetype) -> bool {
+        true
+    }
+
+    fn collect_access(reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {
+        reads.push(TypeId::of::<T>());
+    }
+
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        if archetype.types.contains(&TypeId::of::<T>()) {
+            Some(archetype.column_mut::<T>())
+        } else {
+            None
+        }
+    }
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+        if let Some(fetch) = fetch {
+            let val_ptr = fetch.as_ptr() as *mut T;
+            unsafe { Some(&*val_ptr.add(index)) }
+        } else {
+            None
+        }
+    }
+
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        if let Some(fetch) = fetch {
+            unsafe { Some(&*fetch.as_ptr().add(index)) }
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Component> QueryData for Option<&mut T> {
+    type Item<'w> = Option<Mut<'w, T>>;
+    type ReadOnlyItem<'w> = Option<&'w T>;
+    type Fetch<'w> = Option<(
+        ComponentColumnWrite<'w, T>,
+        Option<ComponentColumnWrite<'w, ChangedState<T>>>,
+    )>;
+
+    fn matches(_archetype: &Archetype) -> bool {
+        true
+    }
+
+    fn collect_access(_reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>) {
+        writes.push(TypeId::of::<T>());
+        writes.push(TypeId::of::<ChangedState<T>>());
+    }
+
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        let marker_writer_opt = archetype.get_column_mut::<ChangedState<T>>();
+        let data_writer_opt = archetype.get_column_mut::<T>();
+        if let Some(data_writer) = data_writer_opt {
+            if let Some(marker_writer) = marker_writer_opt {
+                Some((data_writer, Some(marker_writer)))
+            } else {
+                Some((data_writer, None))
+            }
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+        unsafe {
+            if let Some(fetch) = fetch {
+                let data_ptr = fetch.0.as_ptr() as *mut T;
+
+                let final_marker = fetch
+                    .1
+                    .as_ref()
+                    .map(|marker_column| {
+                        (marker_column.as_ptr() as *mut ChangedState<T>).add(index)
+                    })
+                    .unwrap_or(std::ptr::null_mut());
+
+                Some(Mut {
+                    value: data_ptr.add(index),
+                    changed_state: final_marker,
+                    _marker: std::marker::PhantomData,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        unsafe {
+            if let Some(data_head) = fetch {
+                Some(&*data_head.0.as_ptr().add(index))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+pub struct Has<T: Component>(PhantomData<T>);
+
+impl<T: Component> QueryData for Has<T> {
+    type Item<'w> = bool;
+    type ReadOnlyItem<'w> = bool;
+    type Fetch<'w> = bool;
+    fn collect_access(
+        _reads: &mut AccessVec<std::any::TypeId>,
+        _writes: &mut AccessVec<std::any::TypeId>,
+    ) {
+    }
+
+    fn matches(archetype: &Archetype) -> bool {
+        archetype.contains_column::<T>()
+    }
+
+    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        archetype.get_column::<T>().is_some()
+    }
+
+    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, _index: usize) -> Self::Item<'w> {
+        *fetch
+    }
+
+    unsafe fn fetch_read_only<'w, 'b>(
+        fetch: &Self::Fetch<'b>,
+        _index: usize,
+    ) -> Self::ReadOnlyItem<'w> {
+        *fetch
+    }
+}
+
+macro_rules! impl_world_query_tuple {
+    ($($name:ident -> $idx:tt),*) => {
+        impl<$($name: QueryData),*> QueryData for ($($name,)*) {
+            type Item<'w> = ($($name::Item<'w>,)*);
+            type ReadOnlyItem<'w> = ($($name::ReadOnlyItem<'w>,)*);
+            type Fetch<'w> = ($($name::Fetch<'w>,)*);
+
+            fn matches(archetype: &Archetype) -> bool { $($name::matches(archetype))&&* }
+            unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> { unsafe { ($($name::init_fetch(archetype),)*) } }
+            unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+                unsafe {($($name::fetch_mut(&fetch.$idx, index),)*)}
+            }
+
+            unsafe fn fetch_read_only<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::ReadOnlyItem<'w> {
+                unsafe { ($($name::fetch_read_only(&fetch.$idx, index),)*) }
+            }
+
+            fn collect_access(reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>) {
+                $( $name::collect_access(reads, writes); )*
+            }
+        }
+    };
+}
+
+impl_world_query_tuple!(A -> 0);
+impl_world_query_tuple!(A -> 0, B -> 1);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9);
+impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9, K -> 10);

@@ -1,0 +1,93 @@
+use avilex::prelude::*;
+
+#[derive(Debug, Component)]
+struct Position {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Debug, Component)]
+struct Velocity {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Component)]
+struct Player;
+
+#[derive(Component)]
+struct Enemy;
+
+#[derive(Resource)]
+struct ScoreTracker {
+    points: i32,
+}
+
+#[derive(ComponentBundle)]
+struct PlayerComponentBundle {
+    pos: Position,
+    vel: Velocity,
+    tag: Player,
+}
+
+#[derive(QueryData)]
+#[query_data(derive(Debug))]
+struct PhysicsQuery {
+    pos: &'static Position,
+    vel: &'static mut Velocity,
+}
+
+#[derive(QueryFilter)]
+struct PlayerFilter {
+    has_player: With<Player>,
+    not_enemy: Without<Enemy>,
+}
+
+#[derive(SystemParam)]
+struct CompositeSystemParam<'q> {
+    query: Query<'q, PhysicsQuery, PlayerFilter>,
+    tracker: ResMut<'q, ScoreTracker>,
+    #[system_param(ignore)]
+    // Initialized with Default::default() every frame, it does not persist accross frames
+    counter: usize,
+}
+
+fn setup_macro_entities(commands: Commands) {
+    commands.spawn(PlayerComponentBundle {
+        pos: Position { x: 50.0, y: 50.0 },
+        vel: Velocity { x: 2.0, y: 2.0 },
+        tag: Player,
+    });
+
+    commands.spawn((
+        Position { x: 999.0, y: 999.0 },
+        Velocity { x: 0.0, y: 0.0 },
+        Enemy,
+    ));
+}
+
+fn verify_and_mutate_macros(mut tools: CompositeSystemParam) {
+    tools.tracker.points += 500;
+    let matched_entities = tools.query.filtered_entities();
+    for mut entity in tools.query.iter_mut() {
+        println!("entity: {:?}", entity);
+        entity.vel.x += 10.0;
+        entity.vel.y += 10.0;
+        assert_eq!(entity.pos.x, 50.0);
+        assert_eq!(entity.pos.y, 50.0);
+        assert_eq!(entity.vel.x, 12.0);
+        assert_eq!(entity.vel.y, 12.0);
+    }
+    tools.counter += 1;
+    assert_eq!(matched_entities, 1);
+}
+
+fn main() {
+    let mut app = App::new();
+    app.insert_resource(ScoreTracker { points: 0 })
+        .add_systems(Startup, setup_macro_entities)
+        .add_systems(Update, verify_and_mutate_macros);
+    app.run();
+    let tracker = app.world().resource::<ScoreTracker>();
+    assert_eq!(tracker.points, 500);
+}

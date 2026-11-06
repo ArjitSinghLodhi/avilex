@@ -1,0 +1,118 @@
+use avilex::prelude::*;
+
+#[derive(States, Default, Debug, Clone, PartialEq, Eq)]
+enum GameState {
+    #[default]
+    MainMenu,
+    InGame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TransitionEvent {
+    ExitMenu,
+    EnterGame,
+    GameplayTick,
+}
+
+#[derive(Resource, Default)]
+struct TransitionTracker {
+    history: Vec<TransitionEvent>,
+}
+
+fn main() {
+    println!("=== avilex States Integration Test ===");
+
+    let mut app = App::new();
+    app.init_state::<GameState>()
+        .insert_resource(TransitionTracker::default())
+        .add_systems(
+            Update,
+            (
+                cleanup_menu_assets.run_if(exited_state(GameState::MainMenu)),
+                setup_game_world.run_if(entered_state(GameState::InGame)),
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            gameplay_system
+                .run_if(in_state(GameState::InGame))
+                .after(setup_game_world),
+        );
+
+    app.build();
+    app.run_startup();
+
+    println!("Checking initial state conditions...");
+    app.update();
+    {
+        let tracker = app.world().resource::<TransitionTracker>();
+        let state = app.world().resource::<State<GameState>>();
+
+        assert_eq!(*state.current(), GameState::MainMenu);
+        assert!(tracker.history.is_empty());
+    }
+
+    println!("Scheduling state modification hook...");
+    {
+        let mut next_state = app.world().resource_mut::<NextState<GameState>>();
+        next_state.set(GameState::InGame);
+    }
+
+    println!("Processing transition lifecycle step...");
+    app.update();
+    {
+        let tracker = app.world().resource::<TransitionTracker>();
+        let state = app.world().resource::<State<GameState>>();
+
+        assert_eq!(*state.current(), GameState::InGame);
+        assert_eq!(*state.last(), GameState::MainMenu);
+        assert!(state.just_changed());
+
+        assert_eq!(
+            tracker.history,
+            vec![
+                TransitionEvent::ExitMenu,
+                TransitionEvent::EnterGame,
+                TransitionEvent::GameplayTick
+            ]
+        );
+    }
+
+    println!("Verifying lifecycle boundary stabilization...");
+    app.update();
+    {
+        let tracker = app.world().resource::<TransitionTracker>();
+        let state = app.world().resource::<State<GameState>>();
+
+        assert_eq!(*state.current(), GameState::InGame);
+        assert!(!state.just_changed());
+
+        assert_eq!(
+            tracker.history,
+            vec![
+                TransitionEvent::ExitMenu,
+                TransitionEvent::EnterGame,
+                TransitionEvent::GameplayTick,
+                TransitionEvent::GameplayTick
+            ]
+        );
+    }
+
+    println!(" -> Success: State transition engine verified perfectly across all frame cycles!");
+}
+
+fn cleanup_menu_assets(mut tracker: ResMut<TransitionTracker>) {
+    println!(" >> Executing exited_state(MainMenu) hook");
+    tracker.history.push(TransitionEvent::ExitMenu);
+}
+
+fn setup_game_world(mut tracker: ResMut<TransitionTracker>) {
+    println!(" >> Executing entered_state(InGame) hook");
+    tracker.history.push(TransitionEvent::EnterGame);
+}
+
+fn gameplay_system(mut tracker: ResMut<TransitionTracker>) {
+    println!(" >> Executing Gameplay System Tick");
+    tracker.history.push(TransitionEvent::GameplayTick);
+}

@@ -1,0 +1,300 @@
+use avilex::prelude::*;
+
+#[derive(Event)]
+struct ThreatEvent {
+    value: f32,
+}
+
+#[derive(Resource)]
+struct FrameCounter {
+    current_frame: u32,
+}
+
+fn increment_frame_system(mut counter: ResMut<FrameCounter>) {
+    counter.current_frame += 1;
+}
+
+fn assert_threat_values(reader: &EventReader<ThreatEvent>) {
+    assert!(
+        reader.read().all(|event| event.value == 10.0),
+        "Value corrupted or not same"
+    );
+}
+
+fn pre_emit_verify_frame_1(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 0,
+        "❌ Soundness Failure: Pre-emit system found an event on Frame 1 before any emission occurred! Got: {}, Expected: 0",
+        count
+    );
+}
+
+fn pre_emit_verify_frame_2(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 1,
+        "❌ Core Failure: Pre-emit system failed to pick up the historical inter-frame event on Frame 2! Got: {}, Expected: 1",
+        count
+    );
+}
+
+fn pre_emit_verify_frame_3(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 0,
+        "❌ Stagnation Failure: Event leaked into Frame 3 for the Pre-emit system after it should have stagnated out of bounds! Got: {}, Expected: 0",
+        count
+    );
+}
+
+fn emitter_system(writer: EventWriter<ThreatEvent>) {
+    writer.send(ThreatEvent { value: 10.0 });
+}
+
+fn post_emit_verify_frame_1(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 0,
+        "❌ Buffer Break: Post-emit system caught the immediate inline event alteration on Frame 1! Got: {}, Expected: 0",
+        count
+    );
+}
+
+fn post_emit_verify_frame_2(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 1,
+        "❌ Pipeline Leak: Post-emit system failed to read the active buffered event on Frame 2! Got: {}, Expected: 1",
+        count
+    );
+}
+
+fn post_emit_verify_frame_3(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    assert_threat_values(&reader);
+    assert_eq!(
+        count, 0,
+        "❌ Stagnation Failure: Event leaked into Frame 3 for the Post-emit system after it should have stagnated out of bounds! Got: {}, Expected: 0",
+        count
+    );
+}
+
+fn test_runner_frames(app: &mut App) {
+    app.build();
+    app.run_startup();
+
+    app.update();
+    app.update();
+    app.update();
+}
+
+#[test_fork::test]
+fn test_events_multi_frame_lifecycle() {
+    let mut app = App::new();
+    app.insert_resource(FrameCounter { current_frame: 0 })
+        .init_event::<ThreatEvent>()
+        .add_systems(
+            Update,
+            (
+                increment_frame_system,
+                pre_emit_verify_frame_1.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 1)
+                    },
+                ),
+                pre_emit_verify_frame_2.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 2)
+                    },
+                ),
+                pre_emit_verify_frame_3.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 3)
+                    },
+                ),
+                emitter_system.run_if(|counter: ParallelResourceAccessor<FrameCounter>| {
+                    counter.scope(|c| c.current_frame == 1)
+                }),
+                post_emit_verify_frame_1.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 1)
+                    },
+                ),
+                post_emit_verify_frame_2.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 2)
+                    },
+                ),
+                post_emit_verify_frame_3.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 3)
+                    },
+                ),
+            )
+                .chain(),
+        );
+
+    app.set_runner(test_runner_frames);
+    app.run();
+}
+
+fn parallel_execution_system(
+    reader_a: EventReader<ThreatEvent>,
+    reader_b: EventReader<ThreatEvent>,
+    writer_a: EventWriter<ThreatEvent>,
+    par_writer_a: ParallelEventWriter<ThreatEvent>,
+    par_writer_b: ParallelEventWriter<ThreatEvent>,
+    par_reader_a: ParallelEventReader<ThreatEvent>,
+    par_reader_b: ParallelEventReader<ThreatEvent>,
+) {
+    writer_a.send(ThreatEvent { value: 100.0 });
+
+    let mut read_a_count = 0;
+    let mut read_b_count = 0;
+    let mut nest_read_a_count = 0;
+    let mut nest_read_b_count = 0;
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            par_writer_a.scope(|writer| {
+                writer.send(ThreatEvent { value: 10.0 });
+
+                par_writer_b.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                });
+            });
+        });
+
+        s.spawn(|| {
+            par_writer_b.scope(|writer| {
+                writer.send(ThreatEvent { value: 10.0 });
+
+                par_writer_a.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                });
+            });
+        });
+
+        s.spawn(|| {
+            read_a_count = reader_a.par_read().count();
+            read_b_count = reader_b.read().count();
+        });
+
+        s.spawn(|| {
+            par_reader_a.scope(|reader| {
+                nest_read_a_count = reader.read().count();
+
+                par_reader_b.scope(|reader| {
+                    nest_read_b_count = reader.par_read().count();
+                });
+            });
+        });
+    });
+
+    assert_eq!(read_a_count, 0);
+    assert_eq!(read_b_count, 0);
+    assert_eq!(nest_read_a_count, 0);
+    assert_eq!(nest_read_b_count, 0);
+}
+
+fn parallel_verification_system(
+    reader_a: EventReader<ThreatEvent>,
+    par_reader_a: ParallelEventReader<ThreatEvent>,
+    par_reader_b: ParallelEventReader<ThreatEvent>,
+) {
+    let count = reader_a.read().count();
+    assert_eq!(count, 11);
+
+    let mut base_count = 0;
+    let mut parallel_count = 0;
+    let mut nest_read_a_count = 0;
+    let mut nest_read_b_count = 0;
+
+    for event in reader_a.read() {
+        if event.value == 100.0 {
+            base_count += 1;
+        } else if event.value == 10.0 {
+            parallel_count += 1;
+        }
+    }
+
+    assert_eq!(base_count, 1);
+    assert_eq!(parallel_count, 10);
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            par_reader_a.scope(|reader_a| {
+                nest_read_a_count = reader_a.par_read().count();
+
+                par_reader_b.scope(|reader_b| {
+                    nest_read_b_count = reader_b.read().count();
+                });
+            });
+        });
+    });
+
+    assert_eq!(
+        nest_read_a_count, 11,
+        "❌ Nested ParallelEventReader A missed historical events on Frame 2!"
+    );
+    assert_eq!(
+        nest_read_b_count, 11,
+        "❌ Nested ParallelEventReader B missed historical events on Frame 2!"
+    );
+}
+
+fn empty_verification_system(reader_a: EventReader<ThreatEvent>) {
+    let count = reader_a.read().count();
+    assert_eq!(count, 0);
+}
+
+fn test_three_frames(app: &mut App) {
+    app.build();
+    app.run_startup();
+
+    app.update();
+    app.update();
+    app.update();
+}
+
+#[test_fork::test]
+fn test_events_parallel_lifecycle() {
+    let mut app = App::new();
+    app.insert_resource(FrameCounter { current_frame: 0 })
+        .init_event::<ThreatEvent>()
+        .add_systems(
+            Update,
+            (
+                increment_frame_system,
+                parallel_execution_system.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 1)
+                    },
+                ),
+                parallel_verification_system.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 2)
+                    },
+                ),
+                empty_verification_system.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 3)
+                    },
+                ),
+            )
+                .chain(),
+        );
+
+    app.set_runner(test_three_frames);
+    app.run();
+}

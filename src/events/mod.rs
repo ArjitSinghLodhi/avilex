@@ -1,0 +1,174 @@
+mod parallel_events;
+
+pub use parallel_events::{ParallelEventReader, ParallelEventWriter};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+
+use std::any::{Any, TypeId};
+
+use orx_concurrent_bag::ConcurrentBag;
+use parking_lot::RwLock;
+
+use crate::{
+    resources::{Res, Resource},
+    system::{SystemAccessMeta, SystemParam, system_error::SystemParamError},
+    world::World,
+};
+
+pub trait Event: Send + Sync + 'static {}
+
+pub(crate) struct TrackedEventsMeta {
+    pub(crate) comp_id: TypeId,
+    pub(crate) event_id: TypeId,
+    pub(crate) clear_events: fn(&mut Box<dyn Any + Send + Sync + 'static>),
+}
+
+pub(crate) static TRACKED_EVENTS: RwLock<Vec<TrackedEventsMeta>> = RwLock::new(Vec::new());
+
+pub(crate) fn register_event<T: Event>() {
+    let mut tracked = TRACKED_EVENTS.write();
+    if tracked
+        .iter()
+        .find(|meta| meta.comp_id == TypeId::of::<T>())
+        .is_none()
+    {
+        tracked.push(TrackedEventsMeta {
+            comp_id: TypeId::of::<T>(),
+            event_id: TypeId::of::<EventBuffer<T>>(),
+            clear_events: |raw_any| {
+                let event_queue = raw_any
+                    .downcast_mut::<EventBuffer<T>>()
+                    .expect("Registered event queue was not found when clearing data");
+                event_queue.read_queue.queue.clear();
+                std::mem::swap(
+                    &mut event_queue.read_queue.queue,
+                    &mut event_queue.write_queue.queue,
+                );
+            },
+        });
+    }
+}
+
+pub(crate) struct EventQueue<T: Event> {
+    pub(crate) queue: ConcurrentBag<T>,
+}
+
+pub struct EventBuffer<T: Event> {
+    pub(crate) read_queue: EventQueue<T>,
+    pub(crate) write_queue: EventQueue<T>,
+}
+
+impl<T: Event> EventBuffer<T> {
+    pub(crate) fn new() -> Self {
+        EventBuffer {
+            read_queue: EventQueue::new(),
+            write_queue: EventQueue::new(),
+        }
+    }
+}
+
+impl<T: Event> Resource for EventBuffer<T> {}
+
+impl<T: Event> EventQueue<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            queue: ConcurrentBag::new(),
+        }
+    }
+}
+
+/// A system parameter used to dispatch events of type `T` to the engine's event queue.
+///
+/// # Architecture & Timing
+///
+/// Event handling in avilex is globally double-buffered and strictly time-bound. It operates
+/// on the exact same 3-frame lifecycle used by component tracking (`Added` and `Changed` flags):
+///
+/// * **Frame 1 (Sending):** Events sent via [`.send`] or [`.send_batch`] are safely queued in the active write buffer but remain hidden from readers.
+/// * **Frame 2 (Reading Window):** The internal buffers swap globally, making these events visible to event readers.
+/// * **Frame 3 (Purge):** The buffer is cleared. Events are unconditionally dropped, regardless of whether any systems read them.
+///
+/// Because event visibility lasts for exactly one frame window, any system designed to process these events
+/// **must run every single frame** to avoid missing data.
+///
+/// [`.send`]: EventWriter::send
+/// [`.send_batch`]: EventWriter::send_batch
+pub struct EventWriter<'a, T: Event> {
+    pub(crate) buffer: Res<'a, EventBuffer<T>>,
+}
+
+impl<'a, T: Event> EventWriter<'a, T> {
+    /// Queues a single event to be dispatched.
+    ///
+    /// The event is stored in the write buffer and will become visible to readers in the next frame.
+    #[inline]
+    pub fn send(&self, event: T) {
+        self.buffer.write_queue.queue.push(event);
+    }
+
+    /// Queues an iterator of multiple events to be dispatched efficiently in a single operation.
+    #[inline]
+    pub fn send_batch<I>(&self, event_iter: I)
+    where
+        I: IntoIterator<Item = T>,
+        I::IntoIter: Send + ExactSizeIterator,
+    {
+        self.buffer.write_queue.queue.extend(event_iter);
+    }
+}
+
+impl<'a, T: Event> SystemParam for EventWriter<'a, T> {
+    type Item<'world> = EventWriter<'world, T>;
+
+    fn init_access(_system_meta: &mut SystemAccessMeta) {}
+
+    fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
+        let buffer = world.resource::<EventBuffer<T>>();
+        Ok(EventWriter { buffer })
+    }
+}
+
+/// A system parameter used to read dispatched events of type `T` from the engine's event queue.
+///
+/// # Architecture & Timing
+///
+/// Event handling in avilex is globally double-buffered and strictly time-bound. It operates
+/// on the exact same 3-frame lifecycle used by component tracking (`Added` and `Changed` flags):
+///
+/// * **Frame 1 (Sending):** Events are written via an `EventWriter` but remain hidden in the active write buffer.
+/// * **Frame 2 (Reading Window):** The internal buffers swap globally, making these events visible to this reader via [`.read()`] or [`.par_read()`].
+/// * **Frame 3 (Purge):** The buffer is cleared. Events are unconditionally dropped, regardless of whether any systems read them.
+///
+/// Because event visibility lasts for exactly one frame window, any system designed to process these events
+/// **must run every single frame** to avoid missing data.
+///
+/// [`.read()`]: EventReader::read
+/// [`.par_read()`]: EventReader::par_read
+pub struct EventReader<'w, T: Event> {
+    pub(crate) buffer: Res<'w, EventBuffer<T>>,
+}
+
+impl<'w, T: Event> EventReader<'w, T> {
+    pub fn read(&self) -> impl Iterator<Item = &T> {
+        unsafe { self.buffer.read_queue.queue.iter() }
+    }
+
+    pub fn par_read(&self) -> impl IndexedParallelIterator<Item = &T> {
+        let queue = &self.buffer.read_queue.queue;
+        let len = queue.len();
+
+        (0..len)
+            .into_par_iter()
+            .map(move |idx| unsafe { queue.get(idx).expect("Index should be within bounds") })
+    }
+}
+
+impl<'w, T: Event> SystemParam for EventReader<'w, T> {
+    type Item<'world> = EventReader<'world, T>;
+
+    fn init_access(_system_meta: &mut SystemAccessMeta) {}
+
+    fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
+        let buffer = world.resource::<EventBuffer<T>>();
+        Ok(EventReader { buffer })
+    }
+}

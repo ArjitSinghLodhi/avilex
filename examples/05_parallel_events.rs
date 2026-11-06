@@ -1,0 +1,208 @@
+use avilex::prelude::*;
+
+#[derive(Event)]
+struct ThreatEvent {
+    value: f32,
+}
+
+#[derive(Resource)]
+struct FrameCounter {
+    current_frame: u32,
+}
+
+fn main() {
+    println!("=== parallel event example ===\n");
+
+    let mut app = App::new();
+    app.insert_resource(FrameCounter { current_frame: 0 })
+        .init_event::<ThreatEvent>()
+        .add_systems(
+            Update,
+            (
+                increment_frame_system,
+                parallel_execution_system.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 1)
+                    },
+                ),
+                parallel_verification_frame_2.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 2)
+                    },
+                ),
+                parallel_verification_frame_3.run_if(
+                    |counter: ParallelResourceAccessor<FrameCounter>| {
+                        counter.scope(|c| c.current_frame == 3)
+                    },
+                ),
+            )
+                .chain(),
+        );
+
+    app.set_runner(test_three_frames);
+
+    let par_writer_a = app.world().par_event_writer::<ThreatEvent>();
+    let par_writer_b = app.world().par_event_writer::<ThreatEvent>();
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            par_writer_a.scope(|writer| {
+                println!("[Thread 1] Sending parallel events...");
+                writer.send(ThreatEvent { value: 10.0 });
+                par_writer_b.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                });
+            });
+        });
+
+        s.spawn(|| {
+            par_writer_b.scope(|writer| {
+                println!("[Thread 2] Sending parallel events...");
+                writer.send(ThreatEvent { value: 10.0 });
+                par_writer_a.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                });
+            });
+        });
+    });
+
+    app.run();
+
+    println!("\n=== Parallel events example complete ===");
+}
+
+fn increment_frame_system(mut tracker: ResMut<FrameCounter>) {
+    tracker.current_frame += 1;
+}
+
+fn parallel_execution_system(
+    reader: EventReader<ThreatEvent>,
+    writer: EventWriter<ThreatEvent>,
+    writer_two: EventWriter<ThreatEvent>,
+    par_writer_a: ParallelEventWriter<ThreatEvent>,
+    par_writer_b: ParallelEventWriter<ThreatEvent>,
+    par_reader_a: ParallelEventReader<ThreatEvent>,
+    par_reader_b: ParallelEventReader<ThreatEvent>,
+) {
+    println!("[System Frame 1] Sending standard baseline event...");
+    writer.send(ThreatEvent { value: 100.0 });
+
+    let mut inline_read_count = 0;
+    let mut nest_read_a_count = 0;
+    let mut nest_read_b_count = 0;
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            par_writer_a.scope(|writer| {
+                writer.send(ThreatEvent { value: 10.0 });
+                par_writer_b.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                    writer_two.send(ThreatEvent { value: 100.0 });
+                });
+            });
+        });
+
+        s.spawn(|| {
+            par_writer_b.scope(|writer| {
+                writer.send(ThreatEvent { value: 10.0 });
+                par_writer_a.scope(|writer| {
+                    for _ in 0..4 {
+                        writer.send(ThreatEvent { value: 10.0 });
+                    }
+                });
+            });
+        });
+
+        s.spawn(|| {
+            inline_read_count = reader.read().count();
+        });
+
+        s.spawn(|| {
+            par_reader_a.scope(|reader| {
+                nest_read_a_count = reader.read().count();
+                par_reader_b.scope(|reader| {
+                    nest_read_b_count = reader.par_read().count();
+                });
+            });
+        });
+    });
+
+    assert_eq!(inline_read_count, 0);
+    assert_eq!(nest_read_a_count, 0);
+    assert_eq!(nest_read_b_count, 0);
+}
+
+fn parallel_verification_frame_2(
+    reader: EventReader<ThreatEvent>,
+    par_reader_a: ParallelEventReader<ThreatEvent>,
+    par_reader_b: ParallelEventReader<ThreatEvent>,
+) {
+    let count = reader.read().count();
+    let mut base_count = 0;
+    let mut parallel_count = 0;
+    let mut nest_read_a_count = 0;
+    let mut nest_read_b_count = 0;
+
+    for event in reader.read() {
+        if event.value == 100.0 {
+            base_count += 1;
+        } else if event.value == 10.0 {
+            parallel_count += 1;
+        }
+    }
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            par_reader_a.scope(|reader| {
+                nest_read_a_count = reader.read().count();
+                par_reader_b.scope(|reader| {
+                    nest_read_b_count = reader.read().count();
+                });
+            });
+        });
+    });
+
+    println!("\n>> avilex Parallel Event Analysis (Frame 2):");
+    println!("   -> Total events collected across threads: {}", count);
+    println!(
+        "   -> Parallel Reader A verified historic count: {}",
+        nest_read_a_count
+    );
+    println!(
+        "   -> Parallel Reader B verified historic count: {}",
+        nest_read_b_count
+    );
+
+    assert_eq!(base_count, 2);
+    assert_eq!(parallel_count, 20);
+    assert_eq!(count, 22);
+    assert_eq!(nest_read_a_count, 22);
+    assert_eq!(nest_read_b_count, 22);
+    println!("   -> Success: All 22 concurrent events aggregated and synchronized perfectly!");
+}
+
+fn parallel_verification_frame_3(reader: EventReader<ThreatEvent>) {
+    let count = reader.read().count();
+    println!("\n>> avilex Parallel Event Analysis (Frame 3):");
+    println!(
+        "   -> Checking parallel buffer decay. Reader count: {}",
+        count
+    );
+    assert_eq!(count, 0);
+    println!("   -> Success: Parallel event buffers automatically decayed and cleared!");
+}
+
+fn test_three_frames(app: &mut App) {
+    app.build();
+    app.run_startup();
+
+    app.update();
+    app.update();
+    app.update();
+}

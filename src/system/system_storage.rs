@@ -1,0 +1,107 @@
+use std::any::{Any, TypeId};
+
+use rustc_hash::FxHashMap;
+
+#[doc(hidden)]
+pub trait SystemData {
+    #[doc(hidden)]
+    fn get_raw(&self, id: TypeId) -> Option<&Box<dyn Any + Send + Sync>>;
+    #[doc(hidden)]
+    fn get_raw_mut(&mut self, id: TypeId) -> Option<&mut Box<dyn Any + Send + Sync>>;
+    #[doc(hidden)]
+    fn insert_raw(&mut self, id: TypeId, value: Box<dyn Any + Send + Sync>);
+    #[doc(hidden)]
+    fn remove_raw(&mut self, id: TypeId) -> Option<Box<dyn Any + Send + Sync + 'static>>;
+}
+
+pub trait SystemExt {
+    fn get_data<T: 'static + Send + Sync>(&self) -> Option<&T>;
+    fn get_data_mut<T: 'static + Send + Sync>(&mut self) -> Option<&mut T>;
+    fn insert<T: 'static + Send + Sync>(&mut self, value: T);
+    fn get_or_init<T: 'static + Send + Sync>(&mut self, init: impl FnOnce() -> T) -> &T;
+    fn get_or_init_mut<T: 'static + Send + Sync>(&mut self, init: impl FnOnce() -> T) -> &mut T;
+    fn remove<T: 'static + Send + Sync>(&mut self) -> Option<T>;
+}
+
+impl<S: SystemData + ?Sized> SystemExt for S {
+    fn get_data<T: 'static + Send + Sync>(&self) -> Option<&T> {
+        self.get_raw(TypeId::of::<T>())
+            .and_then(|any| any.downcast_ref::<T>())
+    }
+
+    fn get_data_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.get_raw_mut(TypeId::of::<T>())
+            .and_then(|any| any.downcast_mut::<T>())
+    }
+
+    fn insert<T: 'static + Send + Sync>(&mut self, value: T) {
+        self.insert_raw(TypeId::of::<T>(), Box::new(value));
+    }
+
+    fn get_or_init<T>(&mut self, init: impl FnOnce() -> T) -> &T
+    where
+        T: 'static + Send + Sync,
+    {
+        let id = TypeId::of::<T>();
+        if self.get_raw(id).is_none() {
+            self.insert_raw(id, Box::new(init()));
+        }
+        self.get_data::<T>().unwrap()
+    }
+
+    fn get_or_init_mut<T>(&mut self, init: impl FnOnce() -> T) -> &mut T
+    where
+        T: 'static + Send + Sync,
+    {
+        let id = TypeId::of::<T>();
+        if self.get_raw(id).is_none() {
+            self.insert_raw(id, Box::new(init()));
+        }
+        self.get_data_mut::<T>().unwrap()
+    }
+
+    fn remove<T: 'static + Send + Sync>(&mut self) -> Option<T> {
+        let untyped_opt = self.remove_raw(TypeId::of::<T>());
+        untyped_opt.map(|untyped| *untyped.downcast::<T>().expect("type mismatch"))
+    }
+}
+
+#[doc(hidden)]
+pub(crate) struct FunctionData {
+    data: FxHashMap<TypeId, Box<dyn Any + Send + Sync>>,
+}
+
+impl Default for FunctionData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FunctionData {
+    pub fn new() -> Self {
+        Self {
+            data: FxHashMap::default(),
+        }
+    }
+
+    pub(crate) fn get_raw_data(&self, type_id: &TypeId) -> Option<&Box<dyn Any + Send + Sync>> {
+        self.data.get(type_id)
+    }
+
+    pub(crate) fn get_raw_data_mut(
+        &mut self,
+        type_id: &TypeId,
+    ) -> Option<&mut Box<dyn Any + Send + Sync>> {
+        self.data.get_mut(type_id)
+    }
+    pub(crate) fn insert_raw_data(&mut self, type_id: &TypeId, value: Box<dyn Any + Send + Sync>) {
+        self.data.insert(*type_id, value);
+    }
+
+    pub(crate) fn remove_raw(
+        &mut self,
+        id: TypeId,
+    ) -> Option<Box<dyn Any + Send + Sync + 'static>> {
+        self.data.remove(&id)
+    }
+}

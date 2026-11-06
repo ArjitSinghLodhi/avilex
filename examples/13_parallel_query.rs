@@ -1,0 +1,153 @@
+use avilex::prelude::*;
+use std::sync::{Arc, Barrier};
+
+#[derive(Component)]
+struct Velocity {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Component)]
+struct Position {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Component)]
+struct IsFollower;
+
+#[derive(Resource, Clone)]
+struct TestSyncContext {
+    barrier: Arc<Barrier>,
+}
+
+#[derive(Resource)]
+struct SimulationActive(bool);
+
+fn main() {
+    let mut app = App::new();
+
+    let par_reader = app
+        .world()
+        .par_query_accessor::<(&Position, &Velocity), EmptyQueryFilter>();
+    let par_writer = app
+        .world()
+        .par_query_accessor::<(&mut Position, &Velocity), Without<IsFollower>>();
+    let par_reactive = app
+        .world()
+        .par_query_accessor::<&Position, Changed<Position>>();
+
+    app.insert_resource(SimulationActive(false));
+
+    app.add_systems(Startup, setup_simulation_entities)
+        .add_systems(
+            Update,
+            multi_query_in_band_system.run_if(
+                |active_res_accessor: ParallelResourceAccessor<SimulationActive>| {
+                    active_res_accessor.scope(|res| res.0)
+                },
+            ),
+        );
+
+    let shared_barrier = Arc::new(Barrier::new(3));
+    app.insert_resource(TestSyncContext {
+        barrier: shared_barrier.clone(),
+    });
+
+    app.build();
+    app.run_startup();
+    app.update();
+
+    app.world_mut().resource_mut::<SimulationActive>().0 = true;
+
+    println!("Starting concurrent background worker threads and main app frame updates...");
+
+    std::thread::scope(|s| {
+        let b1 = shared_barrier.clone();
+        let b2 = shared_barrier.clone();
+
+        s.spawn(move || {
+            b1.wait();
+
+            par_reader.scope(|query| {
+                let mut read_count = 0;
+                for (pos, vel) in query.iter() {
+                    read_count += 1;
+                    assert_eq!(vel.x, 2.0);
+                    assert!(pos.x >= 0.0);
+                }
+                println!(
+                    "[Background Reader Thread] Successfully scanned {} entities concurrently.",
+                    read_count
+                );
+            });
+        });
+
+        s.spawn(move || {
+            b2.wait();
+
+            par_writer.scope(|mut query| {
+                let mut write_count = 0;
+                for (mut pos, vel) in query.iter_mut() {
+                    write_count += 1;
+                    pos.x += vel.x;
+                    pos.y += vel.y;
+                }
+                println!(
+                    "[Background Writer Thread] Successfully mutated {} entities out-of-band.",
+                    write_count
+                );
+            });
+        });
+
+        app.update();
+    });
+
+    par_reactive.scope(|query| {
+        let total_reactive_catch = query.filtered_entities();
+        println!("[Main Thread Reactive Sweep] Caught {} mutably modified leaders via Changed<T> filter.", total_reactive_catch);
+        assert_eq!(total_reactive_catch, 500);
+    });
+
+    println!("Parallel Query Accessor example executed completely error-free!");
+}
+
+fn setup_simulation_entities(commands: Commands) {
+    let batch_leaders = (0..500).map(|i| {
+        (
+            Position {
+                x: i as f32,
+                y: 0.0,
+            },
+            Velocity { x: 2.0, y: 2.0 },
+        )
+    });
+    commands.spawn_batch(batch_leaders);
+
+    let batch_followers = (0..500).map(|i| {
+        (
+            Position {
+                x: i as f32,
+                y: 0.0,
+            },
+            Velocity { x: 2.0, y: 2.0 },
+            IsFollower,
+        )
+    });
+    commands.spawn_batch(batch_followers);
+}
+
+fn multi_query_in_band_system(
+    mut query_write: Query<(&mut Position, &Velocity), Without<IsFollower>>,
+    query_read: Query<&Position, With<IsFollower>>,
+    sync_ctx: Res<TestSyncContext>,
+) {
+    sync_ctx.barrier.wait();
+
+    let system_read_count = query_read.filtered_entities();
+    assert_eq!(system_read_count, 500);
+
+    for (mut pos, vel) in query_write.iter_mut() {
+        pos.x += vel.x * 0.1;
+    }
+}

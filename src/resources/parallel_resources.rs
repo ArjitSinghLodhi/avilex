@@ -1,0 +1,116 @@
+use crate::{
+    resources::{ConcurrentResourceRegistry, Res, ResMut, Resource},
+    system::{ParallelSystemParam, SystemAccessMeta, SystemParam, system_error::SystemParamError},
+    world::World,
+};
+use std::{marker::PhantomData, sync::Arc};
+
+/// A thread-safe, clonable handle providing detached remote access to the engine's resources registry.
+///
+/// `ParallelResourceAccessor` can be passed to external or background worker threads, allowing them to
+/// concurrently read or modify global resources outside the main execution path. It can be obtained
+/// directly from the world layer via [`.par_resource_accessor()`].
+///
+/// This handle is also fully supported for use as a system parameter.
+///
+/// # Deadlock Safety Rules
+/// Cross-thread parallel access is entirely safe. However, because the underlying storage utilizes synchronous
+/// locking primitives to manage concurrent access, nesting access scopes on the *same thread*
+/// behaves exactly like **Standard Rust borrow rules** enforced at runtime:
+/// * **Aliasing Violations:** Nesting scopes on a single thread will cause a freeze if they violate standard aliasing laws.
+/// * **Exclusive Access (Unique Borrow):** Attempting to open a mutable scope while another active scope (mutable or immutable)
+///   targets that same resource on the same thread will trigger a deadlock, equivalent to violating `&mut` exclusivity.
+///
+/// [`.par_resource_accessor()`]: crate::world::World::par_resource_accessor
+pub struct ParallelResourceAccessor<T: Resource + Send + Sync> {
+    pub(crate) resources: Arc<ConcurrentResourceRegistry>,
+    pub(crate) _marker: PhantomData<T>,
+}
+
+impl<T: Resource + Send + Sync> Clone for ParallelResourceAccessor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            resources: self.resources.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+unsafe impl<T: Resource + Send + Sync> Send for ParallelResourceAccessor<T> {}
+unsafe impl<T: Resource + Send + Sync> Sync for ParallelResourceAccessor<T> {}
+unsafe impl<T: Resource + Send + Sync> ParallelSystemParam for ParallelResourceAccessor<T> {}
+
+impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
+    pub fn scope<F, R>(&self, f: F) -> R
+    where
+        F: for<'b> FnOnce(Res<'b, T>) -> R,
+    {
+        let resource = self.resources.resource::<T>();
+        f(resource)
+    }
+
+    pub fn scope_mut<F, R>(&self, f: F) -> R
+    where
+        F: for<'b> FnOnce(ResMut<'b, T>) -> R,
+    {
+        let resource = self.resources.resource_mut::<T>();
+        f(resource)
+    }
+
+    pub fn scope_opt<F, R>(&self, f: F) -> R
+    where
+        F: for<'b> FnOnce(Option<Res<'b, T>>) -> R,
+    {
+        let resource = self.resources.get_resource::<T>();
+        f(resource)
+    }
+
+    pub fn scope_mut_opt<F, R>(&self, f: F) -> R
+    where
+        F: for<'b> FnOnce(Option<ResMut<'b, T>>) -> R,
+    {
+        let resource = self.resources.get_resource_mut::<T>();
+        f(resource)
+    }
+
+    pub fn is_present(&self) -> bool {
+        self.resources.contains_resource::<T>()
+    }
+
+    /// Unlike [`Commands::insert_resource`], which queues the operation until the next apply phase.
+    ///
+    /// This method acquires a write lock and instantly registers the resource, returning the previous
+    /// instance if it was already present in the resource registry.
+    ///
+    /// It is best to use it inside a background thread.
+    ///
+    /// [`Commands::insert_resource`]: crate::commands::Commands::insert_resource
+    pub fn insert_resource(&self, resource: T) -> Option<T> {
+        self.resources.insert_resource(resource)
+    }
+
+    /// Unlike [`Commands::remove_resource`], which queues the operation until the next apply phase.
+    ///
+    /// This method acquires a write lock and instantly removes the resource, returning the
+    /// instance if it was present in the resource registry.
+    ///
+    /// It is best to use it inside a background thread.
+    ///
+    /// [`Commands::remove_resource`]: crate::commands::Commands::remove_resource
+    pub fn remove_resource(&self) -> Option<T> {
+        self.resources.remove_resource::<T>()
+    }
+}
+
+impl<T: Resource + Send + Sync> SystemParam for ParallelResourceAccessor<T> {
+    type Item<'world> = ParallelResourceAccessor<T>;
+
+    fn init_access(_system_meta: &mut SystemAccessMeta) {}
+
+    fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
+        Ok(ParallelResourceAccessor {
+            resources: world.resources.clone(),
+            _marker: PhantomData,
+        })
+    }
+}
