@@ -2,7 +2,7 @@
 
 A deterministic, concurrent Entity Component System (ECS) framework written in Rust, engineered for high-performance parallel workloads and out-of-band remote thread execution. 
 
-avilex provides a complete application pipeline out of the box, combining dense archetype storage with native workflow orchestration tools including component lifecycle hooks, system grouping, and state machines.
+Avilex provides a complete application pipeline out of the box, combining dense archetype storage with native workflow orchestration tools including component lifecycle hooks, system grouping, and state machines.
 
 ---
 
@@ -44,7 +44,7 @@ fn hello_world_system() {
 
 ## Parallel Handles
 
-avilex isolates out-of-band coordination into thread-safe, thread-clonable handles extracted directly from the application layer. Sourced via `app.world()`, these handles act as detached remotes sent into background tasks, network loops, or worker threads to execute safely outside the main schedule thread.
+Avilex isolates out-of-band coordination into thread-safe, thread-clonable handles extracted directly from the application layer. Sourced via `app.world()`, these handles act as detached remotes sent into background tasks, network loops, or worker threads to execute safely outside the main schedule thread.
 
 ### Configuration & Capabilities
 
@@ -87,15 +87,15 @@ Hidden From Active Queries       Caught Natively By Readers      Space Reclaimed
 ---
 
 ### 32-Bit Generationless Entity Recyclability
-avilex enforces an explicit design invariant: **All cloned entity handles referencing a specific entity must be completely dropped before that entity's queued despawn command is processed.**
+Avilex enforces an explicit design invariant: **All cloned entity handles referencing a specific entity must be completely dropped before that entity's queued despawn command is processed.**
 
-* **The Benefit:** By requiring clear lifecycle termination boundaries, avilex completely eliminates the need for integer generation numbers or tracking ticks inside entity keys. The engine safely packs full entity addresses into a compact **32-bit slot**, minimizing memory consumption and eliminating integer overflow errors during long uptime operations.
+* **The Benefit:** By requiring clear lifecycle termination boundaries, Avilex completely eliminates the need for integer generation numbers or tracking ticks inside entity keys. The engine safely packs full entity addresses into a compact **32-bit slot**, minimizing memory consumption and eliminating integer overflow errors during long uptime operations.
 * **Handling Cleanup:** The engine will invoke a diagnostic panic during the handle count check phase if a handle leak occurs, displaying a list of component type_names the entity had right before despawning to help you isolate where the handle leak occurred. To satisfy this requirement cleanly, components can implement the `on_remove` lifecycle hook inside the `Component` trait to automatically intercept entity destruction, drop surviving reference clones, and safely decouple interrelated graph nodes before the final structural flush occurs. Be sure to look into the documentation of the `Component` trait and the `on_remove` hook specifically to understand how to structure this lifecycle behavior. Complete verification layouts can be observed directly within the example blueprints inside the `examples/despawn_cleanup` folder.
 
 ---
 
 ### Component Reactivity Architecture
-avilex uses a demand-driven model for component reactivity to keep untracked data pathways completely unburdened by default.
+Avilex uses a demand-driven model for component reactivity to keep untracked data pathways completely unburdened by default.
 
 * **Lazy Tracking Allocations:** Double-buffered tracking queues are not allocated for every component type by default. They are registered and initialized only if a system explicitly requests them (e.g., via `RemovedComponents<T>`, `Changed<T>`, `ChangedRefMut<T>`, `Added<T>`) or a parallel handle (e.g., `ParallelQueryAccessor`) requests it in its parameters before `app.build()`, or they are manually registered through `World` or `App`.
 * **Optimized Runtime Pathways:** Component types that are never used in reactive query filters skip frame-boundary memory swaps and tracking management entirely, keeping untracked data paths completely unburdened by default.
@@ -107,4 +107,4 @@ For any tracking data requirements introduced dynamically post-build, explicit t
 
 ## License
 
-avilex is dual-licensed under either the Apache License, Version 2.0 or the MIT license.
+Avilex is dual-licensed under either the Apache License, Version 2.0 or the MIT license.

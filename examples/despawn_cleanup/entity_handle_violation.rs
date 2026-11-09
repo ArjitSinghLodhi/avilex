@@ -32,12 +32,12 @@ fn run_failing_simulation(app: &mut App) {
     app.run_startup();
 
     println!(
-        "[avilex Simulation] Entering frame loop. This step intentionally triggers the handle safety invariant validator..."
+        "[Avilex Simulation] Entering frame loop. This step intentionally triggers the handle safety invariant validator..."
     );
     app.update();
 }
 
-#[should_panic(expected = "avilexEntityHandleViolation")]
+#[should_panic(expected = "AvilexEntityHandleViolation")]
 fn main() {
     println!("--- Running Intentional Handle Leak Violation Example ---");
 

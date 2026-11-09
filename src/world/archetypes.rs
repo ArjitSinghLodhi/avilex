@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use dashmap::DashMap;
+use dashmap::{
+    DashMap,
+    mapref::{multiple::RefMulti, one::Ref},
+};
 use indexmap::{IndexMap, IndexSet};
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::{FxBuildHasher, FxHashMap};
@@ -221,8 +224,8 @@ impl Archetype {
 
 pub(crate) struct ArchetypeManager {
     index: FxHashMap<u64, ArchetypeId>,
-    pub(crate) archetypes: Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>>,
-    pub(crate) next_id: u32,
+    archetypes: Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>>,
+    next_id: u32,
 }
 
 impl ArchetypeManager {
@@ -367,9 +370,43 @@ impl ArchetypeManager {
         new_id
     }
 
-    pub(crate) fn get_mut<'a>(&'a self, id: ArchetypeId) -> Option<MutexGuard<'a, Archetype>> {
-        let mutex = self.archetypes.get_mut(&id)?;
+    pub(crate) fn iter_archetypes<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = RefMulti<'a, ArchetypeId, Mutex<Archetype>>> {
+        self.archetypes.iter()
+    }
 
-        unsafe { std::mem::transmute(mutex.lock()) }
+    pub(crate) fn archetypes_map(
+        &self,
+    ) -> Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>> {
+        self.archetypes.clone()
+    }
+
+    pub(crate) fn get_mut<'a>(&'a self, archetype_id: ArchetypeId) -> Option<ArchetypeLock<'a>> {
+        let ref_lock: Ref<'_, ArchetypeId, Mutex<Archetype>> =
+            unsafe { transmute(self.archetypes.get(&archetype_id)?) };
+        let mutex_lock: MutexGuard<'_, Archetype> = unsafe { transmute(ref_lock.lock()) };
+        Some(ArchetypeLock {
+            mutex_lock,
+            _ref_lock: ref_lock,
+        })
+    }
+}
+
+pub(crate) struct ArchetypeLock<'a> {
+    mutex_lock: MutexGuard<'a, Archetype>,
+    _ref_lock: Ref<'a, ArchetypeId, Mutex<Archetype>>,
+}
+
+impl<'a> Deref for ArchetypeLock<'a> {
+    type Target = Archetype;
+    fn deref(&self) -> &Self::Target {
+        &self.mutex_lock
+    }
+}
+
+impl<'a> DerefMut for ArchetypeLock<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mutex_lock
     }
 }

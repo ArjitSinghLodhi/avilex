@@ -12,7 +12,7 @@ pub(crate) fn verify_app_not_built_yet<'a>(context: &str) -> RwLockReadGuard<'a,
     let built = APP_BUILT.read();
     if *built {
         panic!(
-            "avilexLazyReactivityViolation\n\
+            "AvilexLazyReactivityViolation\n\
             -> App was already built when trying to register a tracked component pipeline.\n\
             -> Context: {}",
             context

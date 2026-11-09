@@ -18,13 +18,9 @@ use crate::{
             SpawnCommandCore,
         },
     },
-    component::{
-        ComponentMut, ComponentRef,
-        hooks::{ComponentHooksRegisterer, ComponentHooksRegistry},
-    },
-    entity::{ENTITY_HANDLE_COUNT_REGISTRY, ENTITY_LOCATION_REGISTRY, Entity},
+    component::hooks::{ComponentHooksRegisterer, ComponentHooksRegistry},
+    entity::{ENTITY_HANDLE_COUNT_REGISTRY, Entity, EntityMut, EntityRef},
     events::{EventReader, EventWriter},
-    reactivity::changed::{ChangedState, Mut},
     resources::{
         ConcurrentResourceRegistry, NonSend, NonSendMut, ParallelResourceAccessor, Res, ResMut,
         Resource,
@@ -194,7 +190,7 @@ impl World {
     fn clear_trackers(&mut self) {
         let tracked_comps = TRACKED_COMPONENTS.lock();
         if !tracked_comps.is_empty() {
-            for archetype in self.archetypes_manager.archetypes.iter_mut() {
+            for archetype in self.archetypes_manager.iter_archetypes() {
                 let archetype_lock = archetype.lock();
                 unsafe {
                     for meta_list in tracked_comps.values() {
@@ -303,50 +299,17 @@ impl World {
         Commands::get_param(self).unwrap()
     }
 
-    pub fn get<'a, C: Component>(&'a self, entity: &Entity) -> Option<ComponentRef<'a, C>> {
-        let cell_ptr = unsafe {
-            let ptr = ENTITY_LOCATION_REGISTRY.data_ptr();
-            (*ptr).as_ptr().add(entity.registry_index() as usize)
-        };
-        let arch_id = unsafe { (*cell_ptr).archetype_id() };
-        let row_index = unsafe { (*cell_ptr).index() };
-        let arch = self.archetypes_manager.get_mut(arch_id).unwrap();
-        let component_column = arch.get_column::<C>()?;
-        let component = unsafe { component_column.get_unchecked(row_index as usize) as *const C };
-        Some(ComponentRef {
-            _guard: component_column,
-            ptr: component,
-        })
+    pub fn entity<'w>(&'w self, entity: &'w Entity) -> EntityRef<'w> {
+        EntityRef {
+            world: self,
+            entity,
+        }
     }
 
-    pub fn get_mut<'a, C: Component>(&'a mut self, entity: &Entity) -> Option<ComponentMut<'a, C>> {
-        let cell_ptr = unsafe {
-            let ptr = ENTITY_LOCATION_REGISTRY.data_ptr();
-            (*ptr).as_ptr().add(entity.registry_index() as usize)
-        };
-        let arch_id = unsafe { (*cell_ptr).archetype_id() };
-        let row_index = unsafe { (*cell_ptr).index() };
-        let arch = self.archetypes_manager.get_mut(arch_id).unwrap();
-        let mut component_column = arch.get_column_mut::<C>()?;
-        let component = unsafe { component_column.get_unchecked_mut(row_index as usize) as *mut C };
-        let mut changed_state_column_opt = arch.get_column_mut::<ChangedState<C>>();
-        let changed_state = if let Some(ref mut changed_state_column) = changed_state_column_opt {
-            unsafe {
-                changed_state_column.get_unchecked_mut(row_index as usize) as *mut ChangedState<C>
-            }
-        } else {
-            std::ptr::null_mut()
-        };
-        let item = Mut {
-            value: component,
-            changed_state,
-            _marker: PhantomData,
-        };
-        Some(ComponentMut {
-            _guard_val: component_column,
-            _guard_marker: changed_state_column_opt,
-            item,
-        })
+    pub fn entity_mut<'w>(&'w self, entity: &'w Entity) -> EntityMut<'w> {
+        EntityMut {
+            entity_ref: self.entity(entity),
+        }
     }
 
     pub fn register_component_hooks<'w, T: Component>(
@@ -354,7 +317,7 @@ impl World {
     ) -> ComponentHooksRegisterer<'w, T> {
         if *APP_BUILT.read() {
             panic!(
-                "avilexComponentHooksError\n\
+                "AvilexComponentHooksError\n\
                 Cannot register manual component hooks for {:?} after App::build() has been finalized!\n\
                 All hook registrations must occur during the initial configuration phase.",
                 std::any::type_name::<T>()
@@ -362,11 +325,11 @@ impl World {
         }
 
         let type_id = TypeId::of::<T>();
-        for entry in self.archetypes_manager.archetypes.iter() {
+        for entry in self.archetypes_manager.iter_archetypes() {
             let arch = entry.value().lock();
             if arch.types.contains(&type_id) {
                 panic!(
-                    "avilexComponentHooksError\n\
+                    "AvilexComponentHooksError\n\
                     Cannot register manual component hooks for {:?} because an entity with this component type has already been spawned!\n\
                     Hook registrations must be established before data population begins.",
                     std::any::type_name::<T>()

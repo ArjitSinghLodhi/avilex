@@ -23,18 +23,10 @@ struct Transform {
 }
 
 fn on_discard_physics(world: &mut ExclusiveWorld, entity: &Entity) {
-    let mut meets_condition = false;
-
-    {
-        if let Some(old_body) = world.get::<PhysicsBody>(entity) {
-            if old_body.mass > 50.0 {
-                meets_condition = true;
-            }
+    if let Some(old_body) = world.entity(entity).get::<PhysicsBody>() {
+        if old_body.mass > 50.0 {
+            SPAWNED_CHILDREN.fetch_add(1, Ordering::SeqCst);
         }
-    }
-
-    if meets_condition {
-        SPAWNED_CHILDREN.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -48,7 +40,7 @@ fn on_add_physics(world: &mut ExclusiveWorld, entity: &Entity) {
     let mut meets_condition = false;
 
     {
-        if let Some(transform) = world.get::<Transform>(entity) {
+        if let Some(transform) = world.entity(entity).get::<Transform>() {
             if transform.x > 10.0 {
                 meets_condition = true;
             }
@@ -228,7 +220,7 @@ fn test_manual_hooks_registration_allows_duplicates_and_chains() {
 }
 
 #[test_fork::test]
-#[should_panic(expected = "avilexComponentHooksError")]
+#[should_panic(expected = "AvilexComponentHooksError")]
 fn test_manual_hooks_registration_panics_after_entity_spawned() {
     reset_trackers();
     let mut app = App::new();
@@ -268,7 +260,7 @@ fn test_trait_hooks_always_preserved_alongside_manual_hooks() {
 }
 
 #[test_fork::test]
-#[should_panic(expected = "avilexComponentHooksError")]
+#[should_panic(expected = "AvilexComponentHooksError")]
 fn test_manual_hooks_registration_panics_after_app_built() {
     reset_trackers();
     let mut app = App::new();

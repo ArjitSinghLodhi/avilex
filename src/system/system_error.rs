@@ -4,7 +4,9 @@ use std::fmt;
 
 use crate::resources::Resource;
 
-pub struct SystemErrorHandler(fn(error: RunSystemError));
+pub type SystemErrorHandlerFn = fn(error: RunSystemError);
+
+pub struct SystemErrorHandler(pub SystemErrorHandlerFn);
 
 impl Resource for SystemErrorHandler {}
 

@@ -1,6 +1,6 @@
 use crate::{
-    app::{App, plugin::Plugin},
-    schedule::{dyn_eq::DynEq, executors::multi_threaded::MultiThreadedExecutor},
+    app::{App, dyn_traits::DynEq, plugin::Plugin},
+    schedule::executors::multi_threaded::MultiThreadedExecutor,
     system::{System, SystemNode},
     world::World,
 };

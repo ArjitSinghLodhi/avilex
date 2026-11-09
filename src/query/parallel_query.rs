@@ -76,7 +76,7 @@ impl<Q: QueryData, F: QueryFilter> SystemParam for ParallelQueryAccessor<Q, F> {
 
     fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
         Ok(ParallelQueryAccessor {
-            archetypes_map: world.archetypes_manager.archetypes.clone(),
+            archetypes_map: world.archetypes_manager.archetypes_map(),
             _marker: PhantomData,
         })
     }

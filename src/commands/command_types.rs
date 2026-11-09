@@ -1,18 +1,18 @@
-use dashmap::mapref::one::Ref;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use parking_lot::MutexGuard;
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard};
 use rustc_hash::FxBuildHasher;
 use std::any::TypeId;
 use std::marker::PhantomData;
 
 use crate::entity::ENTITY_HANDLE_COUNT_REGISTRY;
 use crate::entity::ENTITY_LOCATION_REGISTRY;
+use crate::entity::EntityLocationData;
 use crate::entity::HandleCount;
-use crate::entity::RegistryData;
 use crate::reactivity::TrackedComponentMeta;
 use crate::reactivity::{TRACKED_COMPONENTS, removed::REMOVAL_TRACKED_COMPS};
+use crate::world::archetypes::ArchetypeLock;
 use crate::{
     commands::{Command, bundle::ComponentBundle},
     component::hooks::ExclusiveWorld,
@@ -213,7 +213,7 @@ where
     }
 }
 
-const ENTITY_HANDLE_VIOLATION_ERR: &str = "avilexEntityHandleViolation";
+const ENTITY_HANDLE_VIOLATION_ERR: &str = "AvilexEntityHandleViolation";
 
 pub(crate) struct DespawnCommand {
     pub(crate) entity: Entity,
@@ -259,13 +259,8 @@ impl Command for DespawnCommand {
         let handle_count =
             (unsafe { &*ENTITY_HANDLE_COUNT_REGISTRY.get_ptr(target_registry_idx) }).get_count();
         if handle_count > 0 {
-            let arch_mutex = &world
-                .archetypes_manager
-                .archetypes
-                .get(&initial_arch_id)
-                .unwrap();
-            let lock = arch_mutex.lock();
-            let types_names = &lock.type_names;
+            let arch = &&world.archetypes_manager.get_mut(initial_arch_id).unwrap();
+            let types_names = &arch.type_names;
             panic!(
                 "{}\n\
                 Cloned `Entity` handles were not dropped before the handle count check!\n\
@@ -294,10 +289,10 @@ impl Command for DespawnCommand {
                 arch.entities.read()[last_idx as usize].registry_index() as usize;
 
             unsafe {
-                let swapped_cell_ptr = entity_location_guard
+                let swapped_entity_location_data_ptr = entity_location_guard
                     .as_mut_ptr()
                     .add(swapped_entity_registry_idx);
-                (*swapped_cell_ptr).set_index(current_target_idx);
+                (*swapped_entity_location_data_ptr).set_index(current_target_idx);
             }
         }
         unsafe {
@@ -394,9 +389,10 @@ impl<T: ComponentBundle> Command for InsertComponentsCommand<T> {
 
         let mut old_has_component = Vec::with_capacity(incoming_ids.len());
         {
-            let map = &world.archetypes_manager.archetypes;
-            let old_arch_mutex = map.get(&old_arch_id).expect("Old archetype missing");
-            let old_arch = old_arch_mutex.lock();
+            let old_arch = world
+                .archetypes_manager
+                .get_mut(old_arch_id)
+                .expect("Old archetype missing");
             for &id in incoming_ids {
                 old_has_component.push(old_arch.types.contains(&id));
             }
@@ -433,10 +429,8 @@ impl<T: ComponentBundle> Command for InsertComponentsCommand<T> {
         }
 
         unsafe {
-            let (old_arch_mutex, new_arch_mutex) =
+            let (mut old_arch, mut new_arch) =
                 get_double_archetypes(world, old_arch_id, new_arch_id);
-            let mut old_arch = old_arch_mutex.lock();
-            let mut new_arch = new_arch_mutex.lock();
             let new_dense_idx = {
                 let Archetype {
                     columns: old_cols, ..
@@ -538,10 +532,8 @@ impl<T: ComponentBundle> Command for RemoveComponentsCommand<T> {
 
         unsafe {
             let world_ptr = world as *mut World;
-            let (old_arch_mutex, new_arch_mutex) =
+            let (mut old_arch, mut new_arch) =
                 get_double_archetypes(world, old_arch_id, new_arch_id);
-            let mut old_arch = old_arch_mutex.lock();
-            let mut new_arch = new_arch_mutex.lock();
             let Archetype {
                 entities: new_arch_entities,
                 columns: new_cols,
@@ -578,11 +570,11 @@ impl<T: ComponentBundle> Command for RemoveComponentsCommand<T> {
 #[inline(always)]
 fn get_registry_location(registry_idx: usize) -> (ArchetypeId, u32) {
     unsafe {
-        let cell_ptr = (*ENTITY_LOCATION_REGISTRY.data_ptr())
+        let entity_location_data_ptr = (*ENTITY_LOCATION_REGISTRY.data_ptr())
             .as_ptr()
             .add(registry_idx);
-        let arch_id = (*cell_ptr).archetype_id();
-        (arch_id, (*cell_ptr).index())
+        let arch_id = (*entity_location_data_ptr).archetype_id();
+        (arch_id, (*entity_location_data_ptr).index())
     }
 }
 
@@ -590,9 +582,9 @@ fn get_registry_location(registry_idx: usize) -> (ArchetypeId, u32) {
 fn update_registry_cell(registry_idx: usize, archetype_id: ArchetypeId, dense_idx: u32) {
     unsafe {
         let mut lock = ENTITY_LOCATION_REGISTRY.write();
-        let cell_ptr = lock.as_mut_ptr().add(registry_idx);
-        (*cell_ptr).set_archetype_id(archetype_id);
-        (*cell_ptr).set_index(dense_idx);
+        let entity_location_data_ptr = lock.as_mut_ptr().add(registry_idx);
+        (*entity_location_data_ptr).set_archetype_id(archetype_id);
+        (*entity_location_data_ptr).set_index(dense_idx);
     }
 }
 
@@ -610,24 +602,21 @@ fn alloc_registry_cell(archetype_id: ArchetypeId, dense_idx: u32, world: &mut Wo
         recycled_idx
     } else {
         let len = lock.len() as u32;
-        lock.push(RegistryData::new(archetype_id, dense_idx));
+        lock.push(EntityLocationData::new(archetype_id, dense_idx));
         ENTITY_HANDLE_COUNT_REGISTRY.push(HandleCount::new(0));
         len
     }
 }
 
 #[inline(always)]
-unsafe fn get_double_archetypes(
-    world: &mut World,
+unsafe fn get_double_archetypes<'a>(
+    world: &'a mut World,
     old_id: ArchetypeId,
     new_id: ArchetypeId,
-) -> (
-    Ref<'_, ArchetypeId, Mutex<Archetype>>,
-    Ref<'_, ArchetypeId, Mutex<Archetype>>,
-) {
-    let map = &mut world.archetypes_manager.archetypes;
-    let old_arch = map.get(&old_id).expect("Old archetype missing");
-    let new_arch = map.get(&new_id).expect("New archetype missing");
+) -> (ArchetypeLock<'a>, ArchetypeLock<'a>) {
+    let manager = &mut world.archetypes_manager;
+    let old_arch = manager.get_mut(old_id).expect("Old archetype missing");
+    let new_arch = manager.get_mut(new_id).expect("New archetype missing");
     (old_arch, new_arch)
 }
 
@@ -641,12 +630,10 @@ fn create_addition_archetype<T: ComponentBundle>(
 
     let mut cloned_base_cols = IndexMap::with_hasher(FxBuildHasher);
     {
-        let old_arch_mutex = world
+        let old_arch = world
             .archetypes_manager
-            .archetypes
-            .get(&old_arch_id)
+            .get_mut(old_arch_id)
             .expect("avilex Engine Fatal: Old Archetype ID not found");
-        let old_arch = old_arch_mutex.lock();
         new_types = old_arch.types.clone();
         for id in incoming_ids {
             new_types.insert(*id);
@@ -695,12 +682,10 @@ fn create_subtraction_archetype<T: ComponentBundle>(
     let mut new_types_names;
     let mut cloned_base_cols = IndexMap::with_hasher(FxBuildHasher);
     {
-        let old_arch_mutex = world
+        let old_arch = world
             .archetypes_manager
-            .archetypes
-            .get(&old_arch_id)
+            .get_mut(old_arch_id)
             .expect("avilex Engine Fatal: Old Archetype ID not found");
-        let old_arch = old_arch_mutex.lock();
         new_types = old_arch.types.clone();
         for id in removed_ids {
             new_types.swap_remove(id);

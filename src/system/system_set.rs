@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::app::schedule::DynEq;
+use crate::app::dyn_traits::DynEq;
 use crate::app::system::{SystemData, SystemExt};
 use crate::schedule::ScheduleLabel;
 use crate::system::condition::{ConditionFn, RunConditionsList};

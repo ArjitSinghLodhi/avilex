@@ -8,13 +8,12 @@ struct ConnectionSocket {
 
 impl ConnectionSocket {
     fn handle_insert(world: &mut ExclusiveWorld, entity: &Entity) {
-        let mut target_cluster = None;
-        if let Some(socket) = world.get::<ConnectionSocket>(entity) {
-            target_cluster = Some(socket.remote_node.clone());
-        }
-
-        if let Some(cluster_entity) = target_cluster {
-            if let Some(mut cluster) = world.get_mut::<SocketCluster>(&cluster_entity) {
+        let entity_mut = world.entity_mut(entity);
+        if let Some(socket) = entity_mut.get::<ConnectionSocket>() {
+            if let Some(mut cluster) = world
+                .entity_mut(&socket.remote_node)
+                .get_mut::<SocketCluster>()
+            {
                 cluster.connected_sockets.push(entity.clone());
             }
         }
@@ -22,13 +21,14 @@ impl ConnectionSocket {
 
     fn handle_remove(world: &mut ExclusiveWorld, entity: &Entity) {
         let mut target_cluster = None;
-        if let Some(socket) = world.get::<ConnectionSocket>(entity) {
+        if let Some(socket) = world.entity(entity).get::<ConnectionSocket>() {
             target_cluster = Some(socket.remote_node.clone());
         }
 
         if let Some(cluster_entity) = target_cluster {
             let mut clean_cluster_component = false;
-            if let Some(mut cluster) = world.get_mut::<SocketCluster>(&cluster_entity) {
+            if let Some(mut cluster) = world.entity_mut(&cluster_entity).get_mut::<SocketCluster>()
+            {
                 cluster.connected_sockets.retain(|e| e != entity);
                 if cluster.connected_sockets.is_empty() {
                     clean_cluster_component = true;
@@ -51,12 +51,16 @@ struct SocketCluster {
 impl SocketCluster {
     fn handle_remove(world: &mut ExclusiveWorld, entity: &Entity) {
         let mut sockets_to_clear = Vec::new();
-        if let Some(cluster) = world.get::<SocketCluster>(entity) {
+        if let Some(cluster) = world.entity(entity).get::<SocketCluster>() {
             sockets_to_clear = cluster.connected_sockets.clone();
         }
 
         while let Some(socket_entity) = sockets_to_clear.pop() {
-            if world.get::<ConnectionSocket>(&socket_entity).is_some() {
+            if world
+                .entity(&socket_entity)
+                .get::<ConnectionSocket>()
+                .is_some()
+            {
                 world.remove_components::<ConnectionSocket>(socket_entity.clone());
                 world.despawn(socket_entity);
             }

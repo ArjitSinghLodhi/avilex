@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    entity::{ENTITY_LOCATION_REGISTRY, Entity, RegistryData},
+    entity::{ENTITY_LOCATION_REGISTRY, Entity, EntityLocationData},
     query::single::QuerySingleError,
     system::{AccessVec, SystemAccessMeta, SystemParam, system_error::SystemParamError},
     world::{
@@ -125,14 +125,14 @@ impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
 pub struct Query<'q, Q: QueryData, F: QueryFilter = EmptyQueryFilter> {
     cached_fetches: Vec<Option<Q::Fetch<'q>>>,
     cached_archetypes: Vec<Option<MatchedArchetypeData<'q, F>>>,
-    entity_location_registry_guard: RwLockReadGuard<'q, Vec<RegistryData>>,
+    entity_location_registry_guard: RwLockReadGuard<'q, Vec<EntityLocationData>>,
 }
 
 unsafe impl<'q, Q: QueryData, F: QueryFilter> Sync for Query<'q, Q, F> {}
 
 impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
     pub(crate) fn new(
-        archetypes_map: &'q Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>>,
+        archetypes_map: &Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>>,
     ) -> Self {
         let len = archetypes_map.len();
 
@@ -168,8 +168,8 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
 
         let entity_location_registry_guard = unsafe {
             transmute::<
-                RwLockReadGuard<'_, Vec<RegistryData>>,
-                RwLockReadGuard<'q, Vec<RegistryData>>,
+                RwLockReadGuard<'_, Vec<EntityLocationData>>,
+                RwLockReadGuard<'q, Vec<EntityLocationData>>,
             >(ENTITY_LOCATION_REGISTRY.read())
         };
 
@@ -472,12 +472,12 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
 
     fn get_row_and_arch(&self, entity: &Entity) -> (ArchetypeId, u32) {
         unsafe {
-            let cell_ptr = self
+            let entity_location_data_ptr = self
                 .entity_location_registry_guard
                 .as_ptr()
                 .add(entity.registry_index() as usize);
-            let arch_id = (*cell_ptr).archetype_id();
-            let row_index = (*cell_ptr).index();
+            let arch_id = (*entity_location_data_ptr).archetype_id();
+            let row_index = (*entity_location_data_ptr).index();
             (arch_id, row_index)
         }
     }
@@ -618,22 +618,22 @@ impl<'q, Q: QueryData, F: QueryFilter> SystemParam for Query<'q, Q, F> {
             }
         }
 
-        for id in local_reads.iter() {
-            system_meta.add_component_read(*id);
+        for id in local_reads.iter().copied() {
+            system_meta.add_component_read(id);
         }
-        for id in local_writes.iter() {
-            system_meta.add_component_write(*id);
+        for id in local_writes.iter().copied() {
+            system_meta.add_component_write(id);
         }
-        for id in local_with.iter() {
-            system_meta.add_with_filter(*id);
+        for id in local_with.iter().copied() {
+            system_meta.add_with_filter(id);
         }
-        for id in local_without.iter() {
-            system_meta.add_without_filter(*id);
+        for id in local_without.iter().copied() {
+            system_meta.add_without_filter(id);
         }
     }
 
     fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
-        let query = Query::<Q, F>::new(&world.archetypes_manager.archetypes);
+        let query = Query::<Q, F>::new(&world.archetypes_manager.archetypes_map());
         Ok(query)
     }
 }

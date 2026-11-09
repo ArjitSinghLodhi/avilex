@@ -11,7 +11,7 @@ struct FrameCounter {
 }
 
 fn main() {
-    println!("=== Standard avilex event lifecycle ===\n");
+    println!("=== Standard Avilex event lifecycle ===\n");
 
     let mut app = App::new();
     app.insert_resource(FrameCounter { current_frame: 0 })
@@ -57,7 +57,7 @@ fn event_execution_system(reader: EventReader<ThreatEvent>, writer: EventWriter<
 
 fn event_verification_frame_2(reader: EventReader<ThreatEvent>) {
     let count = reader.par_read().count();
-    println!("\n>> avilex Event Analysis (Frame 2):");
+    println!("\n>> Avilex Event Analysis (Frame 2):");
     println!("   -> EventReader verified count: {}", count);
     assert_eq!(count, 2);
 
@@ -73,7 +73,7 @@ fn event_verification_frame_2(reader: EventReader<ThreatEvent>) {
 
 fn event_verification_frame_3(reader: EventReader<ThreatEvent>) {
     let count = reader.read().count();
-    println!("\n>> avilex Event Analysis (Frame 3):");
+    println!("\n>> Avilex Event Analysis (Frame 3):");
     println!("   -> Checking event buffer decay. Reader count: {}", count);
     assert_eq!(count, 0);
     println!("   -> Success: Event buffers automatically decayed and cleared!");

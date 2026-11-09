@@ -11,7 +11,6 @@ pub trait QueryFilter {
     fn collect_filter_access(reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>);
 }
 
-#[derive(Debug)]
 pub struct With<T: Component>(PhantomData<T>);
 impl<T: Component> QueryFilter for With<T> {
     type FilterData<'w> = bool;
@@ -30,7 +29,6 @@ impl<T: Component> QueryFilter for With<T> {
     fn collect_filter_access(_reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {}
 }
 
-#[derive(Debug)]
 pub struct Without<T: Component>(PhantomData<T>);
 impl<T: Component> QueryFilter for Without<T> {
     type FilterData<'w> = bool;

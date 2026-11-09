@@ -10,7 +10,7 @@ impl Children {
     pub fn handle_remove(world: &mut ExclusiveWorld, entity: &Entity) {
         let mut children_to_clear = Vec::new();
         {
-            if let Some(mut parent_children) = world.get_mut::<Children>(entity) {
+            if let Some(mut parent_children) = world.entity_mut(entity).get_mut::<Children>() {
                 children_to_clear = std::mem::take(&mut parent_children.children);
             }
         }
@@ -18,7 +18,7 @@ impl Children {
         for child in children_to_clear {
             let mut child_still_exists = false;
             {
-                if world.get::<ChildOf>(&child).is_some() {
+                if world.entity(&child).get::<ChildOf>().is_some() {
                     child_still_exists = true;
                 }
             }
@@ -40,7 +40,7 @@ impl ChildOf {
     fn on_insert(world: &mut ExclusiveWorld, entity: &Entity) {
         let mut parent_target = None;
         {
-            if let Some(link) = world.get::<ChildOf>(entity) {
+            if let Some(link) = world.entity(entity).get::<ChildOf>() {
                 parent_target = Some(link.parent.clone());
             }
         }
@@ -48,7 +48,7 @@ impl ChildOf {
         if let Some(parent) = parent_target {
             let mut appended_to_parent = false;
             {
-                if let Some(mut parent_children) = world.get_mut::<Children>(&parent) {
+                if let Some(mut parent_children) = world.entity_mut(&parent).get_mut::<Children>() {
                     parent_children.children.push(entity.clone());
                     appended_to_parent = true;
                 }
@@ -72,7 +72,7 @@ impl ChildOf {
     fn on_discard(world: &mut ExclusiveWorld, entity: &Entity) {
         let mut parent_target = None;
         {
-            if let Some(child_of) = world.get::<ChildOf>(entity) {
+            if let Some(child_of) = world.entity(entity).get::<ChildOf>() {
                 parent_target = Some(child_of.parent.clone());
             }
         }
@@ -80,7 +80,7 @@ impl ChildOf {
         if let Some(parent) = parent_target {
             let mut clean_parent_component = false;
             {
-                if let Some(mut parent_children) = world.get_mut::<Children>(&parent) {
+                if let Some(mut parent_children) = world.entity_mut(&parent).get_mut::<Children>() {
                     parent_children.children.retain(|e| e != entity);
                     if parent_children.children.is_empty() {
                         clean_parent_component = true;

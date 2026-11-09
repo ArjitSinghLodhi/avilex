@@ -5,16 +5,9 @@ fn on_add_burning(world: &mut ExclusiveWorld, entity: &Entity) {
 }
 
 fn on_insert_burning(world: &mut ExclusiveWorld, entity: &Entity) {
-    let mut meets_condition = false;
-    {
-        if let Some(fx) = world.get::<VisualEffectComponent>(entity) {
-            if fx.effect_type == 1 {
-                meets_condition = true;
-            }
-        }
-    }
-    if meets_condition {
-        if let Some(mut fx) = world.get_mut::<VisualEffectComponent>(entity) {
+    let entity_mut = world.entity_mut(entity);
+    if let Some(mut fx) = entity_mut.get_mut::<VisualEffectComponent>() {
+        if fx.effect_type == 1 {
             fx.effect_type = 2;
         }
     }
@@ -23,7 +16,8 @@ fn on_insert_burning(world: &mut ExclusiveWorld, entity: &Entity) {
 fn on_discard_burning(world: &mut ExclusiveWorld, entity: &Entity) {
     let mut meets_condition = false;
     {
-        if let Some(burning) = world.get::<BurningEffect>(entity) {
+        let entity_ref = world.entity(entity);
+        if let Some(burning) = entity_ref.get::<BurningEffect>() {
             if burning.intensity > 5.0 {
                 meets_condition = true;
             }

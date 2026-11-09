@@ -30,7 +30,7 @@ fn test_panic_app_already_built() {
 }
 
 #[test_fork::test]
-#[should_panic(expected = "avilexLazyReactivityViolation")]
+#[should_panic(expected = "AvilexLazyReactivityViolation")]
 fn test_unregistered_changed_tracking_accessor_panics() {
     let mut app = App::new();
     app.build();

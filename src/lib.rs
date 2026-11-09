@@ -6,6 +6,7 @@
 mod app_impl;
 mod commands;
 mod component;
+mod dyn_traits;
 mod entity;
 mod events;
 mod query;
@@ -42,7 +43,7 @@ pub mod prelude {
             SystemNode, SystemParam,
             condition::{Condition, ConditionFn, RunConditionsList, not, resource_exists},
             system_configs_traits::{ConfigureSystemConfigs, IntoSystemConfigs, SystemConfigs},
-            system_error::{RunSystemError, Severity, SystemFailError, SystemParamError},
+            system_error::SystemErrorHandlerFn,
             system_set::{IntoSystemSetConfigs, SystemSet, SystemSetConfigsExt, SystemSetExt},
             system_traits::{AsSchedulingTarget, TrackHierarchyEdges},
         },
@@ -62,7 +63,7 @@ pub mod prelude {
             Component, ComponentMut, ComponentRef,
             hooks::{ComponentHook, ComponentHooksRegisterer, ExclusiveWorld},
         },
-        entity::Entity,
+        entity::{Entity, EntityMut, EntityRef},
         events::{Event, EventReader, EventWriter, ParallelEventReader, ParallelEventWriter},
         query::{
             Has, ParallelQueryAccessor, Query, QueryData, QueryMutableChunk, QueryReadOnlyChunk,
@@ -165,7 +166,7 @@ pub mod ecs {
         }
     }
     pub mod entity {
-        pub use crate::entity::Entity;
+        pub use crate::entity::{Entity, EntityMut, EntityRef};
     }
 }
 
@@ -207,8 +208,8 @@ pub mod app {
 
         pub mod system_error {
             pub use crate::system::system_error::{
-                RunSystemError, Severity, SystemErrorHandler, SystemFailError, SystemParamError,
-                default_system_error_handler,
+                RunSystemError, Severity, SystemErrorHandler, SystemErrorHandlerFn,
+                SystemFailError, SystemParamError, default_system_error_handler,
             };
         }
     }
@@ -234,11 +235,14 @@ pub mod app {
         pub use crate::schedule::{
             DefaultSchedulesPlugin, First, Last, PostUpdate, PreUpdate, Schedule, ScheduleLabel,
             Startup, SystemExecutor, SystemsSchedule, Update,
-            dyn_eq::DynEq,
             executors::{
                 multi_threaded::MultiThreadedExecutor, single_threaded::SingleThreadedExecutor,
             },
         };
+    }
+
+    pub mod dyn_traits {
+        pub use crate::dyn_traits::DynEq;
     }
     pub mod plugin {
         pub use crate::app_impl::plugin::{Plugin, PluginGroup, PluginGroupBuilder};

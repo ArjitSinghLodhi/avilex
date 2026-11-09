@@ -3,28 +3,24 @@ use std::{any::TypeId, marker::PhantomData, rc::Rc};
 
 use crate::{
     commands::bundle::ComponentBundle,
-    component::{ComponentMut, ComponentRef},
     ecs::component::Component,
-    entity::Entity,
+    entity::{Entity, EntityMut, EntityRef},
     events::{Event, EventReader, EventWriter},
     resources::{NonSend, NonSendMut, Res, ResMut, Resource},
     world::World,
 };
 
-pub struct ExclusiveWorld<'a> {
-    pub(crate) world: &'a mut World,
+pub struct ExclusiveWorld<'w> {
+    pub(crate) world: &'w mut World,
 }
 
-impl<'a> ExclusiveWorld<'a> {
-    pub fn get<'w, C: Component>(&'w self, entity: &'w Entity) -> Option<ComponentRef<'w, C>> {
-        self.world.get::<C>(entity)
+impl<'w> ExclusiveWorld<'w> {
+    pub fn entity<'a>(&'a self, entity: &'a Entity) -> EntityRef<'a> {
+        self.world.entity(entity)
     }
 
-    pub fn get_mut<'w, C: Component>(
-        &'w mut self,
-        entity: &'w Entity,
-    ) -> Option<ComponentMut<'w, C>> {
-        self.world.get_mut::<C>(entity)
+    pub fn entity_mut<'a>(&'a self, entity: &'a Entity) -> EntityMut<'a> {
+        self.world.entity_mut(entity)
     }
 
     pub fn spawn<B: ComponentBundle>(&mut self, component_bundle: B) -> Entity {
@@ -63,19 +59,19 @@ impl<'a> ExclusiveWorld<'a> {
         self.world.remove_resource::<T>()
     }
 
-    pub fn resource<'w, R: Resource + Send + Sync>(&'w self) -> Res<'w, R> {
+    pub fn resource<'a, R: Resource + Send + Sync>(&'a self) -> Res<'a, R> {
         self.world.resource::<R>()
     }
 
-    pub fn resource_mut<'w, R: Resource + Send + Sync>(&'w self) -> ResMut<'w, R> {
+    pub fn resource_mut<'a, R: Resource + Send + Sync>(&'a self) -> ResMut<'a, R> {
         self.world.resource_mut::<R>()
     }
 
-    pub fn get_resource<'w, R: Resource + Send + Sync>(&'w self) -> Option<Res<'w, R>> {
+    pub fn get_resource<'a, R: Resource + Send + Sync>(&'a self) -> Option<Res<'a, R>> {
         self.world.get_resource::<R>()
     }
 
-    pub fn get_resource_mut<'w, R: Resource + Send + Sync>(&'w self) -> Option<ResMut<'w, R>> {
+    pub fn get_resource_mut<'a, R: Resource + Send + Sync>(&'a self) -> Option<ResMut<'a, R>> {
         self.world.get_resource_mut::<R>()
     }
 
@@ -91,19 +87,19 @@ impl<'a> ExclusiveWorld<'a> {
         self.world.remove_non_send_resource::<T>()
     }
 
-    pub fn non_send_resource<'w, R: Resource>(&'w self) -> NonSend<'w, R> {
+    pub fn non_send_resource<'a, R: Resource>(&'a self) -> NonSend<'a, R> {
         self.world.non_send_resource::<R>()
     }
 
-    pub fn non_send_resource_mut<'w, R: Resource>(&'w mut self) -> NonSendMut<'w, R> {
+    pub fn non_send_resource_mut<'a, R: Resource>(&'a mut self) -> NonSendMut<'a, R> {
         self.world.non_send_resource_mut::<R>()
     }
 
-    pub fn get_non_send_resource<'w, R: Resource>(&'w self) -> Option<NonSend<'w, R>> {
+    pub fn get_non_send_resource<'a, R: Resource>(&'a self) -> Option<NonSend<'a, R>> {
         self.world.get_non_send_resource::<R>()
     }
 
-    pub fn get_non_send_resource_mut<'w, R: Resource>(&'w mut self) -> Option<NonSendMut<'w, R>> {
+    pub fn get_non_send_resource_mut<'a, R: Resource>(&'a mut self) -> Option<NonSendMut<'a, R>> {
         self.world.get_non_send_resource_mut::<R>()
     }
 
@@ -113,7 +109,7 @@ impl<'a> ExclusiveWorld<'a> {
     /// The caller must ensure that no other mutable references to the same `NonSend`
     /// resource are active at the same time. Aliasing a mutable reference triggers
     /// immediate undefined behavior.
-    pub unsafe fn non_send_resource_mut_unsafe<'w, R: Resource>(&'w self) -> NonSendMut<'w, R> {
+    pub unsafe fn non_send_resource_mut_unsafe<'a, R: Resource>(&'a self) -> NonSendMut<'a, R> {
         unsafe { self.world.non_send_resource_mut_unsafe::<R>() }
     }
 
@@ -123,16 +119,16 @@ impl<'a> ExclusiveWorld<'a> {
     /// # Safety
     /// The caller must ensure that no other mutable references to the same `NonSend`
     /// resource are active at the same time.
-    pub unsafe fn get_non_send_resource_mut_unsafe<'w, R: Resource>(
-        &'w self,
-    ) -> Option<NonSendMut<'w, R>> {
+    pub unsafe fn get_non_send_resource_mut_unsafe<'a, R: Resource>(
+        &'a self,
+    ) -> Option<NonSendMut<'a, R>> {
         unsafe { self.world.get_non_send_resource_mut_unsafe::<R>() }
     }
 
-    pub fn event_writer<'w, E: Event>(&'w self) -> EventWriter<'w, E> {
+    pub fn event_writer<'a, E: Event>(&'a self) -> EventWriter<'a, E> {
         self.world.event_writer()
     }
-    pub fn event_reader<'w, E: Event>(&'w self) -> EventReader<'w, E> {
+    pub fn event_reader<'a, E: Event>(&'a self) -> EventReader<'a, E> {
         self.world.event_reader()
     }
 }

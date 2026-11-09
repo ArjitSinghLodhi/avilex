@@ -16,7 +16,7 @@ use crate::{
     system::{
         System, SystemAccessMeta,
         system_configs_traits::IntoSystemConfigs,
-        system_error::{RunSystemError, SystemErrorHandler},
+        system_error::{SystemErrorHandler, SystemErrorHandlerFn},
         system_set_traits::IntoSystemSetConfigs,
         system_traits::SystemOrderings,
     },
@@ -355,7 +355,7 @@ impl App {
         self
     }
 
-    pub fn set_system_error_handler(&mut self, handler: fn(RunSystemError)) -> &mut Self {
+    pub fn set_system_error_handler(&mut self, handler: SystemErrorHandlerFn) -> &mut Self {
         self.insert_resource(SystemErrorHandler::new(handler))
     }
 
