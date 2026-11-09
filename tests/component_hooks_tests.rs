@@ -98,7 +98,9 @@ fn test_hook_reads_sibling_component_and_mutates_structure() {
 
     assert_eq!(INSERT_EXEC_COUNT.load(Ordering::SeqCst), 1);
 
-    let query_accessor = app.world().par_query_accessor::<(Option<&MarkerComponent>, Option<&JointComponent>), EmptyQueryFilter>();
+    let query_accessor = app
+        .world()
+        .par_query_accessor::<(Option<&MarkerComponent>, Option<&JointComponent>), ()>();
     query_accessor.scope(|query| {
         let mut found = false;
         for (marker, joint) in query.iter() {
@@ -120,7 +122,7 @@ fn test_hook_reads_previous_data_and_spawns_via_world_commands() {
     app.world_mut().commands().spawn(PhysicsBody { mass: 60.0 });
     app.update();
 
-    let query_accessor = app.world().par_query_accessor::<Entity, EmptyQueryFilter>();
+    let query_accessor = app.world().par_query_accessor::<Entity, ()>();
     let mut targets = Vec::new();
     query_accessor.scope(|query| {
         for entity in query.iter() {
@@ -154,7 +156,7 @@ fn test_hook_intercepts_subtraction_and_cleans_dependent_components() {
 
     assert_eq!(INSERT_EXEC_COUNT.load(Ordering::SeqCst), 1);
 
-    let query_accessor = app.world().par_query_accessor::<Entity, EmptyQueryFilter>();
+    let query_accessor = app.world().par_query_accessor::<Entity, ()>();
     let mut targets = Vec::new();
     query_accessor.scope(|query| {
         for entity in query.iter() {

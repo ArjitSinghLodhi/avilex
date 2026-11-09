@@ -61,7 +61,7 @@ fn setup_entities(commands: Commands) {
     });
 }
 
-fn update_simulation(commands: Commands, query: Query<Entity, EmptyQueryFilter>) {
+fn update_simulation(commands: Commands, query: Query<Entity, ()>) {
     for entity in query.iter() {
         commands.entity(&entity).insert(BurningEffect {
             intensity: 10.0,
@@ -70,9 +70,7 @@ fn update_simulation(commands: Commands, query: Query<Entity, EmptyQueryFilter>)
     }
 }
 
-fn verify_state(
-    query: Query<(Option<&VisualEffectComponent>, Option<&CombustionMarker>), EmptyQueryFilter>,
-) {
+fn verify_state(query: Query<(Option<&VisualEffectComponent>, Option<&CombustionMarker>), ()>) {
     for (fx, combustion) in query.iter() {
         if let Some(effect) = fx {
             println!("VisualEffectComponent type: {}", effect.effect_type);

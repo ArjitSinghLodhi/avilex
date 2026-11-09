@@ -2,7 +2,7 @@ use rustc_hash::FxHashMap;
 use std::{any::TypeId, marker::PhantomData, rc::Rc};
 
 use crate::{
-    commands::bundle::ComponentBundle,
+    commands::{Commands, bundle::ComponentBundle},
     ecs::component::Component,
     entity::{Entity, EntityMut, EntityRef},
     events::{Event, EventReader, EventWriter},
@@ -23,10 +23,22 @@ impl<'w> ExclusiveWorld<'w> {
         self.world.entity_mut(entity)
     }
 
+    /// Spawns a new entity.
+    ///
+    /// Functions identically to [`Commands::spawn`], except structural changes take effect immediately.
+    /// Refer to its documentation for more info.
+    ///
+    /// [`Commands::spawn`]: crate::commands::Commands::spawn
     pub fn spawn<B: ComponentBundle>(&mut self, component_bundle: B) -> Entity {
         self.world.spawn(component_bundle)
     }
 
+    /// Spawns a batch of entities from an iterator.
+    ///
+    /// Functions identically to [`Commands::spawn_batch`], except structural changes take effect immediately.
+    /// Refer to its documentation for more info.
+    ///
+    /// [`Commands::spawn_batch`]: crate::commands::Commands::spawn_batch
     pub fn spawn_batch<B, I>(&mut self, components_iter: I) -> Vec<Entity>
     where
         B: ComponentBundle,
@@ -35,16 +47,38 @@ impl<'w> ExclusiveWorld<'w> {
         self.world.spawn_batch(components_iter)
     }
 
+    /// Inserts a bundle of components onto an existing entity.
+    ///
+    /// Functions identically to [`EntityCommands::insert`], except structural changes take effect immediately.
+    /// Refer to its documentation for more info.
+    ///
+    /// [`EntityCommands::insert`]: crate::commands::EntityCommands::insert
     pub fn insert_components<B: ComponentBundle>(&mut self, entity: Entity, component_bundle: B) {
         self.world.insert_components(entity, component_bundle);
     }
 
+    /// Removes a bundle of components from an entity.
+    ///
+    /// Functions identically to [`EntityCommands::remove`], except structural changes take effect immediately.
+    /// Refer to its documentation for more info.
+    ///
+    /// [`EntityCommands::remove`]: crate::commands::EntityCommands::remove
     pub fn remove_components<B: ComponentBundle>(&mut self, entity: Entity) {
         self.world.remove_components::<B>(entity);
     }
 
+    /// Despawns an entity.
+    ///
+    /// Functions identically to [`EntityCommands::despawn`], except structural changes take effect immediately.
+    /// Refer to its documentation for more info.
+    ///
+    /// [`EntityCommands::despawn`]: crate::commands::EntityCommands::despawn
     pub fn despawn(&mut self, entity: Entity) {
         self.world.despawn(entity)
+    }
+
+    pub fn commands(&self) -> Commands {
+        self.world.commands()
     }
 
     pub fn contains_resource<T: Resource + Send + Sync>(&self) -> bool {

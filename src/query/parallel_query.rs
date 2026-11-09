@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
-    query::{EmptyQueryFilter, Query, QueryData, QueryFilter},
+    query::{Query, QueryData, QueryFilter},
     system::{ParallelSystemParam, SystemAccessMeta, SystemParam, system_error::SystemParamError},
     world::{
         World,
@@ -37,7 +37,7 @@ use crate::{
 ///   while another active query scope holds an active borrow (mutable or shared) on that same component column on the same thread.
 /// * **Borrow Rules:** Violating standard shared vs. exclusive reference bounds across nested scopes on a single execution
 ///   path will cause a thread freeze due to nested acquisition of the underlying column-level locks.
-pub struct ParallelQueryAccessor<Q: QueryData, F: QueryFilter = EmptyQueryFilter> {
+pub struct ParallelQueryAccessor<Q: QueryData, F: QueryFilter = ()> {
     pub(crate) archetypes_map: Arc<DashMap<ArchetypeId, Mutex<Archetype>, FxBuildHasher>>,
     pub(crate) _marker: PhantomData<(Q, F)>,
 }

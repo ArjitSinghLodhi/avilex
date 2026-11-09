@@ -139,9 +139,7 @@ impl_or_tuple!(A, B, C, D, E, F, G, H, I, J);
 impl_or_tuple!(A, B, C, D, E, F, G, H, I, J, K);
 impl_or_tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
 
-#[derive(Debug)]
-pub struct EmptyQueryFilter;
-impl QueryFilter for EmptyQueryFilter {
+impl QueryFilter for () {
     type FilterData<'w> = ();
     fn init_filter_data<'w>(_archetype: &Archetype) -> Self::FilterData<'w> {}
     fn matches(_archetype: &Archetype) -> bool {

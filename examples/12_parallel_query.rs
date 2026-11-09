@@ -29,7 +29,7 @@ fn main() {
 
     let par_reader = app
         .world()
-        .par_query_accessor::<(&Position, &Velocity), EmptyQueryFilter>();
+        .par_query_accessor::<(&Position, &Velocity), ()>();
     let par_writer = app
         .world()
         .par_query_accessor::<(&mut Position, &Velocity), Without<IsFollower>>();

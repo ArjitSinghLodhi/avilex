@@ -58,7 +58,7 @@ pub mod prelude {
         removed::{RemovedComponents, RemovedComponentsBuffer},
     };
     pub use crate::ecs::{
-        commands::{Command, Commands, EntityCommands, ParallelCommands, bundle::ComponentBundle},
+        commands::{Command, Commands, EntityCommands, bundle::ComponentBundle},
         component::{
             Component, ComponentMut, ComponentRef,
             hooks::{ComponentHook, ComponentHooksRegisterer, ExclusiveWorld},
@@ -67,7 +67,7 @@ pub mod prelude {
         events::{Event, EventReader, EventWriter, ParallelEventReader, ParallelEventWriter},
         query::{
             Has, ParallelQueryAccessor, Query, QueryData, QueryMutableChunk, QueryReadOnlyChunk,
-            filter::{EmptyQueryFilter, Not, Or, QueryFilter, With, Without},
+            filter::{Not, Or, QueryFilter, With, Without},
             single::{QuerySingleError, Single, SingleMut},
         },
         resources::{NonSend, NonSendMut, ParallelResourceAccessor, Res, ResMut, Resource},
@@ -101,7 +101,7 @@ pub mod ecs {
             Has, MatchedArchetypeData, Query, QueryData, QueryMutableChunk, QueryReadOnlyChunk,
         };
         pub mod filter {
-            pub use crate::query::filter::{EmptyQueryFilter, Not, Or, QueryFilter, With, Without};
+            pub use crate::query::filter::{Not, Or, QueryFilter, With, Without};
         }
 
         pub mod single {
@@ -152,7 +152,7 @@ pub mod ecs {
         }
     }
     pub mod commands {
-        pub use crate::commands::{Command, Commands, EntityCommands, ParallelCommands};
+        pub use crate::commands::{Command, Commands, EntityCommands};
         pub mod bundle {
             pub use crate::commands::bundle::ComponentBundle;
         }

@@ -1,7 +1,7 @@
 use std::{any::type_name, marker::PhantomData};
 
 use crate::{
-    query::{Query, QueryData, QueryFilter, filter::EmptyQueryFilter},
+    query::{Query, QueryData, QueryFilter},
     system::{
         SystemAccessMeta, SystemParam,
         system_error::{Severity, SystemParamError},
@@ -43,7 +43,7 @@ impl std::fmt::Display for QuerySingleError {
 /// This parameter fetches a specific entity matching the requested `QueryData` and `QueryFilter`.
 /// If there is not exactly one entity matching the criteria within the current frame, the host system
 /// automatically skips its execution entirely.
-pub struct Single<'w, Q: QueryData, F: QueryFilter = EmptyQueryFilter> {
+pub struct Single<'w, Q: QueryData, F: QueryFilter = ()> {
     item: Q::ReadOnlyItem<'w>,
     _query: Query<'w, Q, F>,
     _marker: PhantomData<F>,
@@ -110,7 +110,7 @@ impl<'w, Q: QueryData, F: QueryFilter> std::ops::DerefMut for Single<'w, Q, F> {
 /// This parameter fetches a specific entity matching the requested `QueryData` and `QueryFilter`.
 /// If there is not exactly one entity matching the criteria within the current frame, the host system
 /// automatically skips its execution entirely.
-pub struct SingleMut<'w, Q: QueryData, F: QueryFilter = EmptyQueryFilter> {
+pub struct SingleMut<'w, Q: QueryData, F: QueryFilter = ()> {
     item: Q::Item<'w>,
     _query: Query<'w, Q, F>,
     _marker: PhantomData<F>,

@@ -31,10 +31,10 @@ fn test_parallel_query_accessor_mixed_workload() {
 
     let par_reader = app
         .world()
-        .par_query_accessor::<(&Position, &Velocity), EmptyQueryFilter>();
+        .par_query_accessor::<(&Position, &Velocity), ()>();
     let par_writer = app
         .world()
-        .par_query_accessor::<(&mut Position, &Velocity), EmptyQueryFilter>();
+        .par_query_accessor::<(&mut Position, &Velocity), ()>();
     let par_reactive = app
         .world()
         .par_query_accessor::<&Position, Changed<Position>>();
@@ -105,10 +105,10 @@ fn test_parallel_query_accessor_heavy_mutation_chaos() {
 
     let par_reader = app
         .world()
-        .par_query_accessor::<(&Position, &Velocity), EmptyQueryFilter>();
+        .par_query_accessor::<(&Position, &Velocity), ()>();
     let par_writer = app
         .world()
-        .par_query_accessor::<(&mut Position, &Velocity), EmptyQueryFilter>();
+        .par_query_accessor::<(&mut Position, &Velocity), ()>();
 
     app.add_systems(Startup, setup_simulation_entities)
         .add_systems(Update, dynamic_chaos_mutator_system);

@@ -106,64 +106,60 @@ name = "commands"
 path = "examples/02_commands.rs"
 
 [[example]]
-name = "parallel_commands"
-path = "examples/03_parallel_commands.rs"
-
-[[example]]
 name = "events"
-path = "examples/04_events.rs"
+path = "examples/03_events.rs"
 
 [[example]]
 name = "parallel_events"
-path = "examples/05_parallel_events.rs"
+path = "examples/04_parallel_events.rs"
 
 [[example]]
 name = "query"
-path = "examples/06_query.rs"
+path = "examples/05_query.rs"
 
 [[example]]
 name = "query_parallel"
-path = "examples/07_query_parallel.rs"
+path = "examples/06_query_parallel.rs"
 
 [[example]]
 name = "query_lookups"
-path = "examples/08_query_lookups.rs"
+path = "examples/07_query_lookups.rs"
 
 [[example]]
 name = "query_reactivity"
-path = "examples/09_query_reactivity.rs"
+path = "examples/08_query_reactivity.rs"
 
 [[example]]
 name = "removal_tracking"
-path = "examples/10_removal_tracking.rs"
+path = "examples/9_removal_tracking.rs"
 
 [[example]]
 name = "derive"
-path = "examples/11_derive.rs"
+path = "examples/10_derive.rs"
 
 [[example]]
 name = "parallel_resources"
-path = "examples/12_parallel_resources.rs"
+path = "examples/11_parallel_resources.rs"
 
 [[example]]
 name = "parallel_query"
-path = "examples/13_parallel_query.rs"
+path = "examples/12_parallel_query.rs"
 
 [[example]]
 name = "system_ordering_conditions"
-path = "examples/14_system_ordering_conditions.rs"
+path = "examples/13_system_ordering_conditions.rs"
 
 [[example]]
 name = "states"
-path = "examples/15_states.rs"
+path = "examples/14_states.rs"
 
 [[example]]
 name = "system_sets"
-path = "examples/16_system_sets.rs"
+path = "examples/15_system_sets.rs"
 
 [[example]]
 name = "component_hooks"
-path = "examples/17_component_hooks.rs"
+path = "examples/16_component_hooks.rs"
 
 [[example]]
 name = "basic_cleanup"

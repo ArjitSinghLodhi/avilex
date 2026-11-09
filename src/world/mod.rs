@@ -11,7 +11,7 @@ use std::{
 use crate::{
     app_impl::APP_BUILT,
     commands::{
-        Command, CommandBuffer, Commands, DespawnCommand, ParallelCommands,
+        Command, CommandBuffer, Commands, DespawnCommand,
         bundle::ComponentBundle,
         command_types::{
             BatchSpawnCommandCore, InsertComponentsCommand, RemoveComponentsCommand,
@@ -44,7 +44,7 @@ pub struct World {
     pub(crate) archetypes_manager: ArchetypeManager,
     pub(crate) resources: Arc<ConcurrentResourceRegistry>,
     pub(crate) non_send_resources: FxHashMap<TypeId, UnsafeCell<Box<dyn Any>>>,
-    pub(crate) commands: CommandBuffer,
+    pub(crate) command_buffer: CommandBuffer,
     pub(crate) free_indices_list: Vec<u32>,
     pub(crate) component_hooks_registry: ComponentHooksRegistry,
 }
@@ -57,7 +57,7 @@ impl World {
             archetypes_manager: ArchetypeManager::new(),
             resources: Arc::new(ConcurrentResourceRegistry::new()),
             non_send_resources: FxHashMap::default(),
-            commands: CommandBuffer::new(),
+            command_buffer: CommandBuffer::new(),
             free_indices_list: Vec::new(),
             component_hooks_registry: ComponentHooksRegistry::new(),
         }
@@ -149,13 +149,12 @@ impl World {
     }
 
     pub fn apply_queue_commands(&mut self) {
-        let queue_arc = self.commands.queue.clone();
-        let mut queue_guard = queue_arc.write();
-        queue_guard.apply(self);
+        let queue_arc = self.command_buffer.queue.clone();
+        queue_arc.apply(self);
     }
 
     pub fn apply_despawns(&mut self) {
-        let despawns_arc = self.commands.despawns.clone();
+        let despawns_arc = self.command_buffer.despawns.clone();
         for meta in REMOVAL_TRACKED_COMPS.lock().values() {
             (meta.clear_dead_entities)(self, &despawns_arc)
         }
@@ -245,15 +244,6 @@ impl World {
         }
     }
 
-    /// Returns a thread-safe, thread-clonable [`ParallelCommands`] handle.
-    ///
-    /// This method can be called directly on the `World` to obtain a detached,
-    /// safe remote input into the engine's command pipeline, manageable by external or
-    /// parallel background worker threads.
-    pub fn par_commands(&self) -> ParallelCommands {
-        ParallelCommands::get_param(self).unwrap()
-    }
-
     /// Returns a thread-safe, thread-clonable [`ParallelEventWriter`] handle.
     ///
     /// This method can be called directly on the `World` to obtain a detached,
@@ -295,7 +285,7 @@ impl World {
         EventReader::get_param(self).unwrap()
     }
 
-    pub fn commands<'w>(&'w self) -> Commands<'w> {
+    pub fn commands(&self) -> Commands {
         Commands::get_param(self).unwrap()
     }
 
@@ -373,7 +363,7 @@ impl World {
     }
 
     pub fn despawn(&mut self, entity: Entity) {
-        if self.commands.despawns.remove(&entity) {
+        if self.command_buffer.despawns.remove(&entity) {
             unsafe {
                 (*ENTITY_HANDLE_COUNT_REGISTRY.get_ptr(entity.registry_index() as usize))
                     .decrement();

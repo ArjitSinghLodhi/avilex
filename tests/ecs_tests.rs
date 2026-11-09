@@ -29,11 +29,7 @@ fn test_runner_once(app: &mut App) {
     app.update();
 }
 
-fn setup_initial_entities(
-    commands: Commands,
-    mut tracker: ResMut<ScoreTracker>,
-    par_commands: ParallelCommands,
-) {
+fn setup_initial_entities(commands: Commands, mut tracker: ResMut<ScoreTracker>) {
     tracker.points = 100;
 
     commands.spawn((
@@ -41,19 +37,13 @@ fn setup_initial_entities(
         Velocity { x: 1.0, y: 1.0 },
         TagA,
     ));
-    par_commands.scope(|cmd| {
-        cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
-    });
+    commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
     thread::scope(|s| {
         s.spawn(|| {
-            par_commands.scope(|cmd| {
-                cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
-            });
+            commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
         });
         s.spawn(|| {
-            par_commands.scope(|cmd| {
-                cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
-            });
+            commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
         });
     });
 }
@@ -82,7 +72,7 @@ fn verify_resource_and_commands(
     assert_eq!(found_b, 4);
 }
 
-fn test_par_commands(commands: Commands, par_commands: ParallelCommands) {
+fn test_par_commands(commands: Commands) {
     commands.spawn((
         Position { x: 0.0, y: 0.0 },
         Velocity { x: 0.0, y: 0.0 },
@@ -90,24 +80,16 @@ fn test_par_commands(commands: Commands, par_commands: ParallelCommands) {
     ));
     std::thread::scope(|s| {
         s.spawn(|| {
-            par_commands.scope(|cmd| {
-                cmd.spawn((Position { x: -50.0, y: 10.0 }, TagB));
-                cmd.spawn((Position { x: -60.0, y: 15.0 }, TagB));
-            });
+            commands.spawn((Position { x: -50.0, y: 10.0 }, TagB));
+            commands.spawn((Position { x: -60.0, y: 15.0 }, TagB));
         });
         s.spawn(|| {
-            par_commands.scope(|cmd| {
-                cmd.spawn((Position { x: 50.0, y: -10.0 }, TagB));
-                cmd.spawn((Position { x: 60.0, y: -15.0 }, TagB));
-            });
+            commands.spawn((Position { x: 50.0, y: -10.0 }, TagB));
+            commands.spawn((Position { x: 60.0, y: -15.0 }, TagB));
         });
     });
-    par_commands.scope(|cmd1| {
-        cmd1.spawn((Position { x: 1.0, y: 1.0 }, TagB));
-        par_commands.scope(|cmd2| {
-            cmd2.spawn((Position { x: 2.0, y: 2.0 }, TagB));
-        });
-    });
+    commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+    commands.spawn((Position { x: 2.0, y: 2.0 }, TagB));
 }
 
 #[test_fork::test]
@@ -149,6 +131,40 @@ fn test_query_filter_logic() {
     let mut app = App::new();
     app.add_systems(Startup, spawn_filter_targets)
         .add_systems(Update, verify_logical_queries);
+
+    app.set_runner(test_runner_once);
+    app.run();
+}
+
+fn setup_mid_apply_test(commands: Commands) {
+    let cmds_clone = commands.clone();
+
+    commands.queue(move |_world: &mut World| {
+        let parallel_cmds = cmds_clone.clone();
+
+        thread::scope(|s| {
+            s.spawn(move || {
+                parallel_cmds.spawn((Position { x: 99.0, y: 99.0 }, TagA));
+            });
+        });
+    });
+}
+
+fn verify_mid_apply_execution(query: Query<&Position, With<TagA>>) {
+    let mut found = false;
+    for pos in query.iter() {
+        if pos.x == 99.0 && pos.y == 99.0 {
+            found = true;
+        }
+    }
+    assert!(found);
+}
+
+#[test_fork::test]
+fn test_commands_queued_while_applying() {
+    let mut app = App::new();
+    app.add_systems(Startup, setup_mid_apply_test)
+        .add_systems(Update, verify_mid_apply_execution);
 
     app.set_runner(test_runner_once);
     app.run();

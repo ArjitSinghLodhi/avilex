@@ -122,7 +122,7 @@ impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
     }
 }
 
-pub struct Query<'q, Q: QueryData, F: QueryFilter = EmptyQueryFilter> {
+pub struct Query<'q, Q: QueryData, F: QueryFilter = ()> {
     cached_fetches: Vec<Option<Q::Fetch<'q>>>,
     cached_archetypes: Vec<Option<MatchedArchetypeData<'q, F>>>,
     entity_location_registry_guard: RwLockReadGuard<'q, Vec<EntityLocationData>>,
