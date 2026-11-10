@@ -29,7 +29,11 @@ fn test_runner_once(app: &mut App) {
     app.update();
 }
 
-fn setup_initial_entities(commands: Commands, mut tracker: ResMut<ScoreTracker>) {
+fn setup_initial_entities(
+    commands: Commands,
+    mut tracker: ResMut<ScoreTracker>,
+    par_commands: ParallelCommands,
+) {
     tracker.points = 100;
 
     commands.spawn((
@@ -37,13 +41,19 @@ fn setup_initial_entities(commands: Commands, mut tracker: ResMut<ScoreTracker>)
         Velocity { x: 1.0, y: 1.0 },
         TagA,
     ));
-    commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+    par_commands.scope(|cmd| {
+        cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+    });
     thread::scope(|s| {
         s.spawn(|| {
-            commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+            par_commands.scope(|cmd| {
+                cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+            });
         });
         s.spawn(|| {
-            commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+            par_commands.scope(|cmd| {
+                cmd.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+            });
         });
     });
 }
@@ -72,7 +82,7 @@ fn verify_resource_and_commands(
     assert_eq!(found_b, 4);
 }
 
-fn test_par_commands(commands: Commands) {
+fn test_par_commands(commands: Commands, par_commands: ParallelCommands) {
     commands.spawn((
         Position { x: 0.0, y: 0.0 },
         Velocity { x: 0.0, y: 0.0 },
@@ -80,16 +90,24 @@ fn test_par_commands(commands: Commands) {
     ));
     std::thread::scope(|s| {
         s.spawn(|| {
-            commands.spawn((Position { x: -50.0, y: 10.0 }, TagB));
-            commands.spawn((Position { x: -60.0, y: 15.0 }, TagB));
+            par_commands.scope(|cmd| {
+                cmd.spawn((Position { x: -50.0, y: 10.0 }, TagB));
+                cmd.spawn((Position { x: -60.0, y: 15.0 }, TagB));
+            });
         });
         s.spawn(|| {
-            commands.spawn((Position { x: 50.0, y: -10.0 }, TagB));
-            commands.spawn((Position { x: 60.0, y: -15.0 }, TagB));
+            par_commands.scope(|cmd| {
+                cmd.spawn((Position { x: 50.0, y: -10.0 }, TagB));
+                cmd.spawn((Position { x: 60.0, y: -15.0 }, TagB));
+            });
         });
     });
-    commands.spawn((Position { x: 1.0, y: 1.0 }, TagB));
-    commands.spawn((Position { x: 2.0, y: 2.0 }, TagB));
+    par_commands.scope(|cmd1| {
+        cmd1.spawn((Position { x: 1.0, y: 1.0 }, TagB));
+        par_commands.scope(|cmd2| {
+            cmd2.spawn((Position { x: 2.0, y: 2.0 }, TagB));
+        });
+    });
 }
 
 #[test_fork::test]
@@ -136,35 +154,29 @@ fn test_query_filter_logic() {
     app.run();
 }
 
-fn setup_mid_apply_test(commands: Commands) {
-    let cmds_clone = commands.clone();
-
-    commands.queue(move |_world: &mut World| {
-        let parallel_cmds = cmds_clone.clone();
-
-        thread::scope(|s| {
-            s.spawn(move || {
-                parallel_cmds.spawn((Position { x: 99.0, y: 99.0 }, TagA));
-            });
+fn system_with_queued_parallel_commands(commands: Commands, par_commands: ParallelCommands) {
+    commands.queue(move |_: &mut World| {
+        par_commands.scope(|cmd| {
+            cmd.spawn((Position { x: 100.0, y: 100.0 }, TagB));
         });
     });
 }
 
-fn verify_mid_apply_execution(query: Query<&Position, With<TagA>>) {
-    let mut found = false;
+fn verify_queued_parallel_commands(query: Query<&Position, With<TagB>>) {
+    let mut found_queued = false;
     for pos in query.iter() {
-        if pos.x == 99.0 && pos.y == 99.0 {
-            found = true;
+        if pos.x == 100.0 && pos.y == 100.0 {
+            found_queued = true;
         }
     }
-    assert!(found);
+    assert!(found_queued);
 }
 
 #[test_fork::test]
-fn test_commands_queued_while_applying() {
+fn test_commands_queue_with_parallel() {
     let mut app = App::new();
-    app.add_systems(Startup, setup_mid_apply_test)
-        .add_systems(Update, verify_mid_apply_execution);
+    app.add_systems(Startup, system_with_queued_parallel_commands)
+        .add_systems(Update, verify_queued_parallel_commands);
 
     app.set_runner(test_runner_once);
     app.run();

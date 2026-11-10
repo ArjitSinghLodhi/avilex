@@ -1,24 +1,23 @@
+use avilex_macros::ScheduleLabel;
+
 use crate::{
-    schedule::{ScheduleLabel, SystemExecutor, SystemsSchedule},
+    schedule::{SystemExecutor, SystemsSchedule},
     system::system_error::{SystemErrorHandler, default_system_error_handler},
     world::World,
 };
 
 /// A schedule where queue commands and despawns are applied between each system that runs registered in this schedule.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
+#[schedule_label(default_executor = StartupExecutor::new)]
 pub struct Startup;
 
-impl ScheduleLabel for Startup {
-    fn default_executor(&mut self) -> Box<dyn SystemExecutor> {
-        Box::new(StartupExecutor)
-    }
+pub(crate) struct StartupExecutor;
 
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
+impl StartupExecutor {
+    fn new(_label: &mut Startup) -> Self {
+        Self
     }
 }
-
-pub(crate) struct StartupExecutor;
 
 impl SystemExecutor for StartupExecutor {
     fn init(&mut self, _schedule: &mut SystemsSchedule) {}
@@ -40,47 +39,17 @@ impl SystemExecutor for StartupExecutor {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct First;
 
-impl ScheduleLabel for First {
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct PreUpdate;
 
-impl ScheduleLabel for PreUpdate {
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct Update;
 
-impl ScheduleLabel for Update {
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct PostUpdate;
 
-impl ScheduleLabel for PostUpdate {
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct Last;
-
-impl ScheduleLabel for Last {
-    fn dyn_clone(&self) -> Box<dyn ScheduleLabel> {
-        Box::new(self.clone())
-    }
-}

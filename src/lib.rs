@@ -2,6 +2,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+extern crate self as avilex;
+
 #[path = "app/mod.rs"]
 mod app_impl;
 mod commands;
@@ -52,13 +54,8 @@ pub mod prelude {
         Component, ComponentBundle, Event, ParallelSystemParam, QueryData, QueryFilter, Resource,
         ScheduleLabel, States, SystemParam, SystemSet,
     };
-    pub use crate::ecs::reactivity::{
-        added::{Added, AddedState, AddedTracker},
-        changed::{Changed, ChangedRef, ChangedRefMut, ChangedState, ChangedTracker, Mut},
-        removed::{RemovedComponents, RemovedComponentsBuffer},
-    };
     pub use crate::ecs::{
-        commands::{Command, Commands, EntityCommands, bundle::ComponentBundle},
+        commands::{Command, Commands, EntityCommands, ParallelCommands, bundle::ComponentBundle},
         component::{
             Component, ComponentMut, ComponentRef,
             hooks::{ComponentHook, ComponentHooksRegisterer, ExclusiveWorld},
@@ -69,6 +66,11 @@ pub mod prelude {
             Has, ParallelQueryAccessor, Query, QueryData, QueryMutableChunk, QueryReadOnlyChunk,
             filter::{Not, Or, QueryFilter, With, Without},
             single::{QuerySingleError, Single, SingleMut},
+        },
+        reactivity::{
+            added::{Added, AddedState, AddedTracker},
+            changed::{Changed, ChangedRef, ChangedRefMut, ChangedState, ChangedTracker, Mut},
+            removed::{RemovedComponents, RemovedComponentsBuffer},
         },
         resources::{NonSend, NonSendMut, ParallelResourceAccessor, Res, ResMut, Resource},
         world::World,
@@ -152,7 +154,7 @@ pub mod ecs {
         }
     }
     pub mod commands {
-        pub use crate::commands::{Command, Commands, EntityCommands};
+        pub use crate::commands::{Command, Commands, EntityCommands, ParallelCommands};
         pub mod bundle {
             pub use crate::commands::bundle::ComponentBundle;
         }

@@ -2,8 +2,11 @@ pub(crate) mod bundle;
 mod command_queue;
 pub(crate) mod command_types;
 pub(crate) mod concurrent_despawn_set;
+mod parallel_commands;
 pub(crate) use command_types::DespawnCommand;
-use std::{marker::PhantomData, sync::Arc};
+pub use parallel_commands::ParallelCommands;
+use parking_lot::{RwLock, RwLockReadGuard};
+use std::{marker::PhantomData, mem::transmute, sync::Arc};
 
 use crate::{
     commands::{
@@ -27,26 +30,27 @@ pub trait Command: 'static + Send {
 }
 
 pub(crate) struct CommandBuffer {
-    pub(crate) queue: Arc<CommandQueue>,
+    pub(crate) queue_write: Arc<RwLock<CommandQueue>>,
+    pub(crate) queue_apply: Arc<RwLock<CommandQueue>>,
     pub(crate) despawns: Arc<ConcurrentBitSet>,
 }
 
 impl CommandBuffer {
     pub fn new() -> Self {
         Self {
-            queue: Arc::new(CommandQueue::new()),
+            queue_write: Arc::new(RwLock::new(CommandQueue::new())),
+            queue_apply: Arc::new(RwLock::new(CommandQueue::new())),
             despawns: Arc::new(ConcurrentBitSet::new()),
         }
     }
 }
 
-#[derive(Clone)]
-pub struct Commands {
-    pub(crate) queue: Arc<CommandQueue>,
+pub struct Commands<'a> {
+    pub(crate) queue: RwLockReadGuard<'a, CommandQueue>,
     pub(crate) despawns: Arc<ConcurrentBitSet>,
 }
 
-impl Commands {
+impl<'a> Commands<'a> {
     pub fn queue<C: Command<Out = ()>>(&self, command: C) {
         self.queue.queue(command);
     }
@@ -74,7 +78,7 @@ impl Commands {
         });
     }
 
-    pub fn entity<'a>(&'a self, entity: &'a Entity) -> EntityCommands<'a> {
+    pub fn entity<'b>(&'b self, entity: &'b Entity) -> EntityCommands<'a, 'b> {
         EntityCommands {
             entity_id: entity,
             commands: self,
@@ -102,12 +106,12 @@ impl Commands {
     }
 }
 
-pub struct EntityCommands<'a> {
-    entity_id: &'a Entity,
-    commands: &'a Commands,
+pub struct EntityCommands<'a, 'b> {
+    entity_id: &'b Entity,
+    commands: &'b Commands<'a>,
 }
 
-impl<'a> EntityCommands<'a> {
+impl<'a, 'b> EntityCommands<'a, 'b> {
     /// Schedules a command to insert a bundle of components onto an entity, overwriting any existing data.
     ///
     /// # Behavior
@@ -168,14 +172,20 @@ impl<'a> EntityCommands<'a> {
     }
 }
 
-impl SystemParam for Commands {
-    type Item<'world> = Commands;
+impl<'a> SystemParam for Commands<'a> {
+    type Item<'world> = Commands<'world>;
 
     fn init_access(_system_meta: &mut SystemAccessMeta) {}
 
     fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
-        let queue = world.command_buffer.queue.clone();
+        let queue_local = world.command_buffer.queue_write.read();
         let despawns = world.command_buffer.despawns.clone();
-        Ok(Commands { queue, despawns })
+        unsafe {
+            let queue = transmute::<
+                RwLockReadGuard<'_, CommandQueue>,
+                RwLockReadGuard<'world, CommandQueue>,
+            >(queue_local);
+            Ok(Commands { queue, despawns })
+        }
     }
 }

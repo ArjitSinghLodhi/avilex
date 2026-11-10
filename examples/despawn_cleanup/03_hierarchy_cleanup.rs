@@ -100,7 +100,7 @@ pub trait HierarchyEntityCommandsExt {
     fn remove_parent(&self) -> &Self;
 }
 
-impl<'a> HierarchyEntityCommandsExt for EntityCommands<'a> {
+impl<'a, 'b> HierarchyEntityCommandsExt for EntityCommands<'a, 'b> {
     fn set_parent(&self, new_parent: Entity) -> &Self {
         self.insert(ChildOf { parent: new_parent });
         self

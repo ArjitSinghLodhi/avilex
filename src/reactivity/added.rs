@@ -1,3 +1,4 @@
+use avilex_macros::Component;
 use parking_lot::RwLock;
 use std::{
     any::{TypeId, type_name},
@@ -49,7 +50,7 @@ pub(crate) fn register_added_tracked_component<T: Component>() {
     });
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct AddedState<T: Component> {
     read: bool,
     write: bool,
@@ -81,8 +82,6 @@ impl<T: Component> AddedState<T> {
         self.write = write;
     }
 }
-
-impl<T: Component> Component for AddedState<T> {}
 
 /// A query filter that matches components of type `T` that were newly added during the previous frame.
 ///

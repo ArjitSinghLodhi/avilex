@@ -1,8 +1,6 @@
 use crate::{commands::Command, world::World};
 use orx_concurrent_bag::ConcurrentBag;
-use std::cell::UnsafeCell;
 use std::mem::{self, ManuallyDrop, MaybeUninit};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct CommandMeta {
     consume_and_advance: unsafe fn(
@@ -17,27 +15,14 @@ pub(crate) struct BufferChunk {
     pub(crate) bytes: [MaybeUninit<u8>; 16],
 }
 
-#[repr(align(64))]
-struct CacheAlignedAtomic(AtomicUsize);
-
 pub(crate) struct CommandQueue {
-    bags: UnsafeCell<[ConcurrentBag<BufferChunk>; 2]>,
-    active_idx: AtomicUsize,
-    writer_tickets: [CacheAlignedAtomic; 2],
+    chunks: ConcurrentBag<BufferChunk>,
 }
-
-unsafe impl Send for CommandQueue {}
-unsafe impl Sync for CommandQueue {}
 
 impl Default for CommandQueue {
     fn default() -> Self {
         Self {
-            bags: UnsafeCell::new([ConcurrentBag::new(), ConcurrentBag::new()]),
-            active_idx: AtomicUsize::new(0),
-            writer_tickets: [
-                CacheAlignedAtomic(AtomicUsize::new(0)),
-                CacheAlignedAtomic(AtomicUsize::new(0)),
-            ],
+            chunks: ConcurrentBag::new(),
         }
     }
 }
@@ -45,6 +30,10 @@ impl Default for CommandQueue {
 impl CommandQueue {
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.chunks.is_empty()
     }
 
     pub(crate) fn queue<C: Command<Out = ()>>(&self, command: C) {
@@ -79,85 +68,47 @@ impl CommandQueue {
         };
 
         let stream_iter = StackCommandIterator::new(meta, command);
-        unsafe {
-            loop {
-                let idx = self.active_idx.load(Ordering::Relaxed);
-                self.writer_tickets[idx].0.fetch_add(1, Ordering::SeqCst);
-
-                if idx == self.active_idx.load(Ordering::Acquire) {
-                    let bags_ptr = self.bags.get() as *mut ConcurrentBag<BufferChunk>;
-                    (&*bags_ptr.add(idx)).extend(stream_iter);
-                    self.writer_tickets[idx].0.fetch_sub(1, Ordering::Release);
-                    break;
-                }
-
-                self.writer_tickets[idx].0.fetch_sub(1, Ordering::Relaxed);
-            }
-        }
+        self.chunks.extend(stream_iter);
     }
 
-    pub(crate) fn apply(&self, world: &mut World) {
-        unsafe {
-            loop {
-                let old_idx = self.active_idx.load(Ordering::Relaxed);
-                let next_idx = 1 - old_idx;
+    pub(crate) fn apply(&mut self, world: &mut World) {
+        if self.chunks.is_empty() {
+            return;
+        }
 
-                let bags_ptr = self.bags.get() as *mut ConcurrentBag<BufferChunk>;
+        {
+            let mut chunks_iter = self.chunks.iter_mut();
+            let mut dyn_iter = &mut chunks_iter as &mut dyn Iterator<Item = &mut BufferChunk>;
 
-                if (&*bags_ptr.add(old_idx)).is_empty() && (&*bags_ptr.add(next_idx)).is_empty() {
-                    break;
-                }
-
-                self.active_idx.store(next_idx, Ordering::SeqCst);
-
-                while self.writer_tickets[old_idx].0.load(Ordering::SeqCst) != 0 {
-                    std::hint::spin_loop();
-                }
-
-                let processing_bag = &mut *bags_ptr.add(old_idx);
-
-                if !processing_bag.is_empty() {
-                    {
-                        let mut chunks_iter = processing_bag.iter_mut();
-                        let mut dyn_iter =
-                            &mut chunks_iter as &mut dyn Iterator<Item = &mut BufferChunk>;
-
-                        while let Some(meta_chunk) = dyn_iter.next() {
-                            let meta: CommandMeta =
-                                std::ptr::read(meta_chunk.bytes.as_ptr().cast());
-                            (meta.consume_and_advance)(&mut dyn_iter, Some(world));
-                        }
-                    }
-
-                    processing_bag.clear();
+            while let Some(meta_chunk) = dyn_iter.next() {
+                unsafe {
+                    let meta: CommandMeta = std::ptr::read(meta_chunk.bytes.as_ptr().cast());
+                    (meta.consume_and_advance)(&mut dyn_iter, Some(world));
                 }
             }
         }
+        self.chunks.clear();
     }
 }
 
 impl Drop for CommandQueue {
     fn drop(&mut self) {
-        unsafe {
-            let bags_ptr = self.bags.get() as *mut ConcurrentBag<BufferChunk>;
-            for i in 0..2 {
-                let bag = &mut *bags_ptr.add(i);
-                if !bag.is_empty() {
-                    {
-                        let mut chunks_iter = bag.iter_mut();
-                        let mut dyn_iter =
-                            &mut chunks_iter as &mut dyn Iterator<Item = &mut BufferChunk>;
+        if self.chunks.is_empty() {
+            return;
+        }
 
-                        while let Some(meta_chunk) = dyn_iter.next() {
-                            let meta: CommandMeta =
-                                std::ptr::read(meta_chunk.bytes.as_ptr().cast());
-                            (meta.consume_and_advance)(&mut dyn_iter, None);
-                        }
-                    }
-                    bag.clear();
+        {
+            let mut chunks_iter = self.chunks.iter_mut();
+            let mut dyn_iter = &mut chunks_iter as &mut dyn Iterator<Item = &mut BufferChunk>;
+
+            while let Some(meta_chunk) = dyn_iter.next() {
+                unsafe {
+                    let meta: CommandMeta = std::ptr::read(meta_chunk.bytes.as_ptr().cast());
+                    (meta.consume_and_advance)(&mut dyn_iter, None);
                 }
             }
         }
+        self.chunks.clear();
     }
 }
 

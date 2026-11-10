@@ -11,7 +11,7 @@ use std::{
 use crate::{
     app_impl::APP_BUILT,
     commands::{
-        Command, CommandBuffer, Commands, DespawnCommand,
+        Command, CommandBuffer, Commands, DespawnCommand, ParallelCommands,
         bundle::ComponentBundle,
         command_types::{
             BatchSpawnCommandCore, InsertComponentsCommand, RemoveComponentsCommand,
@@ -149,8 +149,19 @@ impl World {
     }
 
     pub fn apply_queue_commands(&mut self) {
-        let queue_arc = self.command_buffer.queue.clone();
-        queue_arc.apply(self);
+        let queue_write_arc = self.command_buffer.queue_write.clone();
+        let queue_apply_arc = self.command_buffer.queue_apply.clone();
+        loop {
+            let mut queue_apply_guard = queue_apply_arc.write();
+            {
+                let mut queue_write_guard = queue_write_arc.write();
+                std::mem::swap(&mut *queue_write_guard, &mut *queue_apply_guard);
+            }
+            queue_apply_guard.apply(self);
+            if queue_write_arc.read().is_empty() {
+                break;
+            }
+        }
     }
 
     pub fn apply_despawns(&mut self) {
@@ -244,6 +255,15 @@ impl World {
         }
     }
 
+    /// Returns a thread-safe, thread-clonable [`ParallelCommands`] handle.
+    ///
+    /// This method can be called directly on the `World` to obtain a detached,
+    /// safe remote input into the engine's command pipeline, manageable by external or
+    /// parallel background worker threads.
+    pub fn par_commands(&self) -> ParallelCommands {
+        ParallelCommands::get_param(self).unwrap()
+    }
+
     /// Returns a thread-safe, thread-clonable [`ParallelEventWriter`] handle.
     ///
     /// This method can be called directly on the `World` to obtain a detached,
@@ -285,7 +305,7 @@ impl World {
         EventReader::get_param(self).unwrap()
     }
 
-    pub fn commands(&self) -> Commands {
+    pub fn commands<'a>(&'a self) -> Commands<'a> {
         Commands::get_param(self).unwrap()
     }
 

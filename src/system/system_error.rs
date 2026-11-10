@@ -2,13 +2,12 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
 
-use crate::resources::Resource;
+use avilex_macros::Resource;
 
 pub type SystemErrorHandlerFn = fn(error: RunSystemError);
 
+#[derive(Resource)]
 pub struct SystemErrorHandler(pub SystemErrorHandlerFn);
-
-impl Resource for SystemErrorHandler {}
 
 impl SystemErrorHandler {
     pub fn new(handler: fn(error: RunSystemError)) -> Self {

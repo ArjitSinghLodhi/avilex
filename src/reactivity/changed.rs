@@ -6,6 +6,7 @@ use crate::reactivity::{TRACKED_COMPONENTS, TrackedComponentMeta};
 use crate::system::AccessVec;
 use crate::world::archetypes::ComponentColumnRead;
 use crate::world::archetypes::{Archetype, ComponentColumn};
+use avilex_macros::Component;
 use parking_lot::RwLock;
 use std::any::TypeId;
 use std::any::type_name;
@@ -47,7 +48,7 @@ pub(crate) fn register_changed_tracked_component<T: Component>() {
     });
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct ChangedState<T: Component> {
     read: bool,
     write: bool,
@@ -79,8 +80,6 @@ impl<T: Component> ChangedState<T> {
         self.write = write;
     }
 }
-
-impl<T: Component> Component for ChangedState<T> {}
 
 /// A query data wrapper that allows systems to inspect the change state of an individual component instance.
 ///

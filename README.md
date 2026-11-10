@@ -48,9 +48,9 @@ Avilex isolates out-of-band coordination into thread-safe, thread-clonable handl
 
 ### Configuration & Capabilities
 
-* **`Commands`**
-  - **Extraction:** Sourced using `world.commands()`.
-  - **Capabilities:** Fully `Send + Sync` and natively clone-safe out-of-the-box. There is no separate `ParallelCommands` type. Handles can be cloned directly into multi-threaded backgrounds, concurrent tasks, or command queues to safely stage structural changes that synchronize cleanly during the engine's flush phase.
+* **`ParallelCommands`**
+  - **Extraction:** Sourced using `world.par_commands()`.
+  - **Capabilities:** Invoking `.scope(|cmd| ...)` grants access to a standard command buffer. This allows background threads to safely queue structural mutations (spawning/despawning entities, adding/removing components, and deferring resource swaps) to be flushed during the next apply phase.
 * **`ParallelEventWriter<T>` & `ParallelEventReader<T>`**
   - **Extraction:** Sourced using `world.par_event_writer::<T>()` and `world.par_event_reader::<T>()`.
   - **Capabilities:** Invoking `.scope(|writer| ...)` or `.scope(|reader| ...)` lets concurrent background workers read, iterate, or push events synchronously across parallel tasks.

@@ -77,7 +77,7 @@ impl<'w> ExclusiveWorld<'w> {
         self.world.despawn(entity)
     }
 
-    pub fn commands(&self) -> Commands {
+    pub fn commands<'a>(&'a self) -> Commands<'a> {
         self.world.commands()
     }
 

@@ -1,3 +1,5 @@
+use avilex_macros::Resource;
+
 use crate::resources::ParallelResourceAccessor;
 use crate::system::IntoSystem;
 use crate::system::SystemNode;
@@ -91,11 +93,10 @@ pub(crate) fn setup_states_schedules_and_systems<T: States>(app: &mut App, state
     .insert_resource(NextState::<T> { state: None });
 }
 
+#[derive(Resource)]
 pub(crate) struct StateTransitionSystems {
     pub(crate) systems: Vec<SystemNode<(), ()>>,
 }
-
-impl Resource for StateTransitionSystems {}
 
 pub fn in_state<T: States>(
     expected: T,
