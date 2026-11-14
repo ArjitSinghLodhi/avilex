@@ -9,9 +9,16 @@ use crate::{
     world::World,
 };
 
+/// Error returned by [`Query::get_single`] and [`Query::get_single_mut`] when a query does not
+/// match a unique entity.
+///
+/// [`Query::get_single`]: crate::ecs::query::Query::get_single
+/// [`Query::get_single_mut`]: crate::ecs::query::Query::get_single_mut
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuerySingleError {
+    /// Zero entities matched the query.
     NoMatches,
+    /// Two or more entities matched the query.
     MultipleMatches,
 }
 
@@ -38,11 +45,19 @@ impl std::fmt::Display for QuerySingleError {
     }
 }
 
-/// A system parameter that provides read-only access to a single, unique entity's component data.
+/// A [`SystemParam`] that provides read-only access to a single, unique entity's component data.
 ///
-/// This parameter fetches a specific entity matching the requested `QueryData` and `QueryFilter`.
+/// This parameter fetches a specific entity matching the requested [`QueryData`] and [`QueryFilter`].
 /// If there is not exactly one entity matching the criteria within the current frame, the host system
-/// automatically skips its execution entirely.
+/// automatically skips its execution via [`RunSystemError::Skipped`].
+///
+/// Wrap in `Option<Single<Q, F>>` to run the system even when zero or multiple entities match
+/// (yielding `None` in those cases).
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`QueryData`]: crate::ecs::query::QueryData
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
+/// [`RunSystemError::Skipped`]: crate::app::system::system_error::RunSystemError::Skipped
 pub struct Single<'w, Q: QueryData, F: QueryFilter = ()> {
     item: Q::ReadOnlyItem<'w>,
     _query: Query<'w, Q, F>,
@@ -105,11 +120,19 @@ impl<'w, Q: QueryData, F: QueryFilter> std::ops::DerefMut for Single<'w, Q, F> {
     }
 }
 
-/// A system parameter that provides mutable write access to a single, unique entity's component data.
+/// A [`SystemParam`] that provides mutable write access to a single, unique entity's component data.
 ///
-/// This parameter fetches a specific entity matching the requested `QueryData` and `QueryFilter`.
+/// This parameter fetches a specific entity matching the requested [`QueryData`] and [`QueryFilter`].
 /// If there is not exactly one entity matching the criteria within the current frame, the host system
-/// automatically skips its execution entirely.
+/// automatically skips its execution via [`RunSystemError::Skipped`].
+///
+/// Wrap in `Option<SingleMut<Q, F>>` to run the system even when zero or multiple entities match
+/// (yielding `None` in those cases).
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`QueryData`]: crate::ecs::query::QueryData
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
+/// [`RunSystemError::Skipped`]: crate::app::system::system_error::RunSystemError::Skipped
 pub struct SingleMut<'w, Q: QueryData, F: QueryFilter = ()> {
     item: Q::Item<'w>,
     _query: Query<'w, Q, F>,

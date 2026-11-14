@@ -29,40 +29,70 @@ use crate::{
     },
 };
 
+/// A trait for types that can be fetched as items by a [`Query`].
+///
+/// [`Query`]: crate::ecs::query::Query
 pub trait QueryData {
+    /// The mutable item type yielded when iterating or fetching mutably.
     type Item<'w>: Send;
+
+    /// The read-only item type yielded when iterating or fetching immutably.
     type ReadOnlyItem<'w>: Send;
+
+    /// Per-archetype state (such as column pointers or guards) initialized once before row iteration.
     type Fetch<'w>: Sync;
 
+    /// Returns `true` if `archetype` contains all required component columns for this query data.
+    ///
+    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
     fn matches(archetype: &Archetype) -> bool;
 
-    /// # Safety
+    /// Initializes the per-archetype [`QueryData::Fetch`] state for `archetype`.
     ///
+    /// # Safety
     /// Implementations must guarantee that the returned `Self::Fetch` value contains valid,
     /// initialized metadata, pointers, or references that remain valid for the duration of
     /// the borrow layout. It must not lead to out-of-bounds memory access or invalid type casting.
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w>;
+    ///
+    /// [`QueryData::Fetch`]: Self::Fetch
+    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w>;
+
+    /// Records all component [`TypeId`]s read or written by this query data into `reads` and `writes`.
+    ///
+    /// [`TypeId`]: std::any::TypeId
     fn collect_access(reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>);
 
-    /// # Safety
+    /// Fetches the mutable query item at row `index` from `fetch`.
     ///
-    /// * `fetch` must be a valid state originally produced by `init_fetch` for the current archetype.
+    /// # Safety
+    /// * `fetch` must be a valid state originally produced by [`QueryData::init_fetch`] for the current archetype.
     /// * `index` must be strictly within the bounds of the allocated entity array for this archetype.
     /// * The caller must ensure that unique, mutable access to the underlying item at `index`
     ///   is maintained globally (no aliasing reads or writes).
+    ///
+    /// [`QueryData::init_fetch`]: Self::init_fetch
     unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w>;
 
-    /// # Safety
+    /// Fetches the read-only query item at row `index` from `fetch`.
     ///
-    /// * `fetch` must be a valid state originally produced by `init_fetch`.
+    /// # Safety
+    /// * `fetch` must be a valid state originally produced by [`QueryData::init_fetch`].
     /// * `index` must be strictly within bounds.
     /// * Shared access must be synchronized; no concurrent mutable borrows may exist for this item.
+    ///
+    /// [`QueryData::init_fetch`]: Self::init_fetch
     unsafe fn fetch_read_only<'w, 'b>(
         fetch: &Self::Fetch<'b>,
         index: usize,
     ) -> Self::ReadOnlyItem<'w>;
 }
 
+/// A read-only slice of rows within a single matched [`Archetype`], yielded by
+/// [`Query::par_chunks`].
+///
+/// [`Archetype`]: crate::ecs::world::archetypes::Archetype
+/// [`Query::par_chunks`]: crate::ecs::query::Query::par_chunks
 pub struct QueryReadOnlyChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
     start_idx: usize,
     end_idx: usize,
@@ -71,6 +101,9 @@ pub struct QueryReadOnlyChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
 }
 
 impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryReadOnlyChunk<'b, 'q, Q, F> {
+    /// Returns an [`Iterator`] over the matching read-only query items in this chunk.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn iter<'d>(&'d self) -> impl Iterator<Item = Q::ReadOnlyItem<'d>> {
         let fetch = self.fetch;
         let filter_data = self.filter_data;
@@ -80,6 +113,11 @@ impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryReadOnlyChunk<'b, 'q, Q, F> {
     }
 }
 
+/// A mutable slice of rows within a single matched [`Archetype`], yielded by
+/// [`Query::par_chunks_mut`].
+///
+/// [`Archetype`]: crate::ecs::world::archetypes::Archetype
+/// [`Query::par_chunks_mut`]: crate::ecs::query::Query::par_chunks_mut
 pub struct QueryMutableChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
     start_idx: usize,
     end_idx: usize,
@@ -88,6 +126,9 @@ pub struct QueryMutableChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
 }
 
 impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, 'q, Q, F> {
+    /// Returns an [`Iterator`] over the matching read-only query items in this chunk.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn iter<'c>(&'c self) -> impl Iterator<Item = Q::ReadOnlyItem<'c>> {
         let fetch = self.fetch;
         let filter_data = self.filter_data;
@@ -96,6 +137,9 @@ impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, 'q, Q, F> {
             .map(move |index| unsafe { Q::fetch_read_only(fetch, index) })
     }
 
+    /// Returns an [`Iterator`] over the matching mutable query items in this chunk.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn iter_mut<'c>(&'c mut self) -> impl Iterator<Item = Q::Item<'c>> {
         let fetch = self.fetch;
         let filter_data = self.filter_data;
@@ -105,23 +149,137 @@ impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, 'q, Q, F> {
     }
 }
 
+/// Cached row count and [`QueryFilter`] state for a matched [`Archetype`].
+///
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
+/// [`Archetype`]: crate::ecs::world::archetypes::Archetype
 pub struct MatchedArchetypeData<'q, F: QueryFilter> {
     row_count: usize,
     filter_data: F::FilterData<'q>,
 }
 
 impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
+    /// Returns the number of entity rows stored in the matched [`Archetype`].
+    ///
+    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
     #[inline(always)]
     pub fn row_count(&self) -> usize {
         self.row_count
     }
 
+    /// Returns a shared reference to the initialized [`QueryFilter::FilterData`] for this
+    /// archetype.
+    ///
+    /// [`QueryFilter::FilterData`]: crate::ecs::query::filter::QueryFilter::FilterData
     #[inline(always)]
     pub fn filter_data(&self) -> &F::FilterData<'q> {
         &self.filter_data
     }
 }
 
+/// A [`SystemParam`] that provides selective read-only or mutable access to components matching
+/// [`QueryData`] `Q` and [`QueryFilter`] `F`.
+///
+/// `Query` is the primary way systems read and mutate entity components stored across matching
+/// [`Archetype`] tables.
+///
+/// # Basic Usage
+/// Pass a tuple (or single item) of [`QueryData`] as the first type parameter `Q`:
+/// - `&T` grants shared read-only access to component `T`.
+/// - `&mut T` grants exclusive mutable access via [`Mut<'_, T>`], automatically marking `T` as
+///   changed when mutably dereferenced (if change tracking is enabled for `T`).
+/// - `Option<&T>` and `Option<&mut T>` match entities whether or not they have component `T`.
+/// - [`Entity`] yields the entity's handle.
+///
+/// ```rust
+/// # use avilex::prelude::*;
+/// #[derive(Component)]
+/// struct Position { x: f32, y: f32 }
+///
+/// #[derive(Component)]
+/// struct Name {
+///     name: String
+/// }
+///
+/// #[derive(Component)]
+/// struct Velocity { x: f32, y: f32 }
+///
+/// fn move_entities(mut query: Query<(&mut Position, &Velocity, Option<&Name>)>) {
+///     for (mut pos, vel, name) in query.iter_mut() {
+///         pos.x += vel.x;
+///         pos.y += vel.y;
+///     }
+/// }
+/// ```
+///
+/// # Filtering Entities
+/// Use the optional second type parameter `F: QueryFilter` to narrow which entities match without
+/// fetching their component data:
+/// - [`With<T>`]: Matches only entities that have component `T`.
+/// - [`Without<T>`]: Matches only entities that do **not** have component `T`.
+/// - [`Or<(F1, F2, ...)>`]: Matches entities that satisfy at least one filter in the tuple.
+/// - [`Not<F>`]: Inverts filter `F`.
+/// - Tuples `(F1, F2, ...)` require all filters to match (logical AND).
+///
+/// ```rust
+/// # use avilex::prelude::*;
+/// # #[derive(Component)] struct Position { x: f32, y: f32 }
+/// # #[derive(Component)] struct Player;
+/// # #[derive(Component)] struct Frozen;
+/// fn move_active_players(mut query: Query<&mut Position, (With<Player>, Without<Frozen>)>) {
+///     for mut pos in query.iter_mut() {
+///         pos.x += 1.0;
+///     }
+/// }
+/// ```
+///
+/// # Reactive Queries (`Added` & `Changed`)
+/// Avilex supports reactive filters and trackers that detect component additions and mutations
+/// from the previous frame (see [`reactivity`] for the 3-frame buffer lifecycle):
+/// - [`Changed<T>`] / [`Added<T>`]: Used in the filter position `F` to yield only entities whose
+///   component `T` was mutated or added in the previous frame.
+/// - [`ChangedRefMut<T>`] / [`AddedTracker<T>`]: Used in the data position `Q` to inspect
+///   `.is_changed()` or `.is_added()` per entity without filtering out unchanged rows.
+///
+/// ```rust
+/// # use avilex::prelude::*;
+/// # #[derive(Component)] struct Health(i32);
+/// fn on_health_changed(query: Query<(Entity, &Health), Changed<Health>>) {
+///     for (entity, health) in query.iter() {
+///         println!("{entity:?} health changed to {}", health.0);
+///     }
+/// }
+/// ```
+///
+/// # Single-Entity & Direct Lookups
+/// - Use [`Query::single`] / [`Query::single_mut`] (or non-panicking [`Query::get_single`] /
+///   [`Query::get_single_mut`]) when expecting exactly one matching entity, or use [`Single`] /
+///   [`SingleMut`] directly as system parameters.
+/// - Use [`Query::get`] / [`Query::get_mut`] to look up a specific [`Entity`] directly by handle.
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`QueryData`]: crate::ecs::query::QueryData
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
+/// [`Archetype`]: crate::ecs::world::archetypes::Archetype
+/// [`Mut<'_, T>`]: crate::ecs::reactivity::changed::Mut
+/// [`Entity`]: crate::ecs::entity::Entity
+/// [`With<T>`]: crate::ecs::query::filter::With
+/// [`Without<T>`]: crate::ecs::query::filter::Without
+/// [`Or<(F1, F2, ...)>`]: crate::ecs::query::filter::Or
+/// [`Not<F>`]: crate::ecs::query::filter::Not
+/// [`reactivity`]: crate::ecs::reactivity
+/// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed
+/// [`Added<T>`]: crate::ecs::reactivity::added::Added
+/// [`ChangedRefMut<T>`]: crate::ecs::reactivity::changed::ChangedRefMut
+/// [`AddedTracker<T>`]: crate::ecs::reactivity::added::AddedTracker
+/// [`Query::single`]: Self::single
+/// [`Query::single_mut`]: Self::single_mut
+/// [`Query::get_single`]: Self::get_single
+/// [`Query::get_single_mut`]: Self::get_single_mut
+/// [`Single`]: crate::ecs::query::single::Single
+/// [`SingleMut`]: crate::ecs::query::single::SingleMut
+/// [`Query::get`]: Self::get
+/// [`Query::get_mut`]: Self::get_mut
 pub struct Query<'q, Q: QueryData, F: QueryFilter = ()> {
     cached_fetches: Vec<Option<Q::Fetch<'q>>>,
     cached_archetypes: Vec<Option<MatchedArchetypeData<'q, F>>>,
@@ -180,6 +338,13 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         }
     }
 
+    /// Returns the single matching read-only query item if exactly one entity matches `Q` and `F`.
+    ///
+    /// Returns `Err(`[`QuerySingleError::NoMatches`]`)` if zero entities match, or
+    /// `Err(`[`QuerySingleError::MultipleMatches`]`)` if more than one entity matches.
+    ///
+    /// [`QuerySingleError::NoMatches`]: crate::ecs::query::single::QuerySingleError::NoMatches
+    /// [`QuerySingleError::MultipleMatches`]: crate::ecs::query::single::QuerySingleError::MultipleMatches
     pub fn get_single<'w>(&'w self) -> Result<Q::ReadOnlyItem<'w>, QuerySingleError> {
         let mut target_arch_id: Option<usize> = None;
         let mut target_row_idx: Option<usize> = None;
@@ -215,6 +380,13 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         unsafe { Ok(Q::fetch_read_only(fetch_state, row_idx)) }
     }
 
+    /// Returns the single matching mutable query item if exactly one entity matches `Q` and `F`.
+    ///
+    /// Returns `Err(`[`QuerySingleError::NoMatches`]`)` if zero entities match, or
+    /// `Err(`[`QuerySingleError::MultipleMatches`]`)` if more than one entity matches.
+    ///
+    /// [`QuerySingleError::NoMatches`]: crate::ecs::query::single::QuerySingleError::NoMatches
+    /// [`QuerySingleError::MultipleMatches`]: crate::ecs::query::single::QuerySingleError::MultipleMatches
     pub fn get_single_mut<'w>(&'w mut self) -> Result<Q::Item<'w>, QuerySingleError> {
         let mut target_arch_id: Option<usize> = None;
         let mut target_row_idx: Option<usize> = None;
@@ -250,12 +422,26 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         unsafe { Ok(Q::fetch_mut(fetch_state, row_idx)) }
     }
 
+    /// Returns the single matching read-only query item.
+    ///
+    /// # Panics
+    /// Panics if zero or more than one entity matches `Q` and `F`. Use [`Query::get_single`] for
+    /// a non-panicking alternative.
+    ///
+    /// [`Query::get_single`]: Self::get_single
     pub fn single<'w>(&'w self) -> Q::ReadOnlyItem<'w> {
         self.get_single().unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }
 
+    /// Returns the single matching mutable query item.
+    ///
+    /// # Panics
+    /// Panics if zero or more than one entity matches `Q` and `F`. Use [`Query::get_single_mut`]
+    /// for a non-panicking alternative.
+    ///
+    /// [`Query::get_single_mut`]: Self::get_single_mut
     pub fn single_mut<'w>(&'w mut self) -> Q::Item<'w> {
         self.get_single_mut().unwrap_or_else(|err| {
             panic!("{}", err);
@@ -289,6 +475,9 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             .sum()
     }
 
+    /// Returns an [`Iterator`] over all matching read-only query items.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn iter<'b>(&'b self) -> impl Iterator<Item = Q::ReadOnlyItem<'b>> {
         self.cached_archetypes
             .iter()
@@ -305,6 +494,9 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
+    /// Returns an [`Iterator`] over all matching mutable query items.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn iter_mut<'b>(&'b mut self) -> impl Iterator<Item = Q::Item<'b>> {
         let fetches = &self.cached_fetches;
         self.cached_archetypes
@@ -322,6 +514,9 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
+    /// Returns a Rayon [`ParallelIterator`] over all matching read-only query items.
+    ///
+    /// [`ParallelIterator`]: rayon::iter::ParallelIterator
     pub fn par_iter<'b>(&'b self) -> impl ParallelIterator<Item = Q::ReadOnlyItem<'b>> {
         self.cached_archetypes
             .par_iter()
@@ -339,6 +534,9 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
+    /// Returns a Rayon [`ParallelIterator`] over all matching mutable query items.
+    ///
+    /// [`ParallelIterator`]: rayon::iter::ParallelIterator
     pub fn par_iter_mut<'b>(&'b mut self) -> impl ParallelIterator<Item = Q::Item<'b>> {
         let fetches = &self.cached_fetches;
         self.cached_archetypes
@@ -357,10 +555,19 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
+    /// Partitions matching archetype rows into chunks of up to `chunk_size` and yields a Rayon
+    /// [`ParallelIterator`] of [`QueryReadOnlyChunk`] batches.
+    ///
+    /// # Panics
+    /// Panics if `chunk_size == 0`.
+    ///
+    /// [`ParallelIterator`]: rayon::iter::ParallelIterator
+    /// [`QueryReadOnlyChunk`]: crate::ecs::query::QueryReadOnlyChunk
     pub fn par_chunks<'b>(
         &'b self,
         chunk_size: usize,
     ) -> impl ParallelIterator<Item = QueryReadOnlyChunk<'b, 'q, Q, F>> {
+        assert!(chunk_size > 0, "chunk_size must be non-zero");
         self.cached_archetypes
             .par_iter()
             .enumerate()
@@ -385,10 +592,19 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
+    /// Partitions matching archetype rows into chunks of up to `chunk_size` and yields a Rayon
+    /// [`ParallelIterator`] of [`QueryMutableChunk`] batches.
+    ///
+    /// # Panics
+    /// Panics if `chunk_size == 0`.
+    ///
+    /// [`ParallelIterator`]: rayon::iter::ParallelIterator
+    /// [`QueryMutableChunk`]: crate::ecs::query::QueryMutableChunk
     pub fn par_chunks_mut<'b>(
         &'b mut self,
         chunk_size: usize,
     ) -> impl ParallelIterator<Item = QueryMutableChunk<'b, 'q, Q, F>> {
+        assert!(chunk_size > 0, "chunk_size must be non-zero");
         let fetches = &self.cached_fetches;
         self.cached_archetypes
             .par_iter()
@@ -414,9 +630,14 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
             })
     }
 
-    /// Random access lookup via Entity handle.
+    /// Performs an `O(1)` random-access lookup for `entity`, returning its read-only query item if
+    /// its archetype matches `Q` and `F`.
     ///
-    /// Note: it does not respect dynamic filters like `Changed<T>` or `Added<T>`
+    /// Note: This lookup checks archetype-level filters only and does not evaluate row-level
+    /// dynamic filters such as [`Changed<T>`] or [`Added<T>`].
+    ///
+    /// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed
+    /// [`Added<T>`]: crate::ecs::reactivity::added::Added
     pub fn get<'w>(&'w self, entity: &Entity) -> Option<Q::ReadOnlyItem<'w>> {
         unsafe {
             let (arch_id, row_index) = self.get_row_and_arch(entity);
@@ -426,9 +647,14 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         }
     }
 
-    /// Random access lookup via Entity handle.
+    /// Performs an `O(1)` random-access lookup for `entity`, returning its mutable query item if
+    /// its archetype matches `Q` and `F`.
     ///
-    /// Note: it does not respect dynamic filters like `Changed<T>` or `Added<T>`
+    /// Note: This lookup checks archetype-level filters only and does not evaluate row-level
+    /// dynamic filters such as [`Changed<T>`] or [`Added<T>`].
+    ///
+    /// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed
+    /// [`Added<T>`]: crate::ecs::reactivity::added::Added
     pub fn get_mut<'w>(&'w mut self, entity: &Entity) -> Option<Q::Item<'w>> {
         unsafe {
             let (arch_id, row_index) = self.get_row_and_arch(entity);
@@ -438,11 +664,18 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         }
     }
 
-    /// Random access lookup via Entity handle.
+    /// Performs an unchecked `O(1)` random-access lookup for `entity`, returning its read-only
+    /// query item without verifying that `entity` matches the query.
     ///
-    /// Note: it does not respect dynamic filters like `Changed<T>` or `Added<T>`
+    /// Note: This lookup checks archetype-level filters only and does not evaluate row-level
+    /// dynamic filters such as [`Changed<T>`] or [`Added<T>`].
+    ///
     /// # Safety
-    /// The caller must ensure that the entity handle belongs to a matching archetype of the query.
+    /// The caller must ensure that `entity` is currently alive and belongs to an archetype
+    /// matched by this query.
+    ///
+    /// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed
+    /// [`Added<T>`]: crate::ecs::reactivity::added::Added
     pub unsafe fn get_unchecked<'w>(&'w self, entity: &Entity) -> Q::ReadOnlyItem<'w> {
         unsafe {
             let (arch_id, row_index) = self.get_row_and_arch(entity);
@@ -455,11 +688,18 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         }
     }
 
-    /// Random access lookup via Entity handle.
+    /// Performs an unchecked `O(1)` random-access lookup for `entity`, returning its mutable
+    /// query item without verifying that `entity` matches the query.
     ///
-    /// Note: it does not respect dynamic filters like `Changed<T>` or `Added<T>`
+    /// Note: This lookup checks archetype-level filters only and does not evaluate row-level
+    /// dynamic filters such as [`Changed<T>`] or [`Added<T>`].
+    ///
     /// # Safety
-    /// The caller must ensure that the entity handle belongs to a matching archetype of the query.
+    /// The caller must ensure that `entity` is currently alive and belongs to an archetype
+    /// matched by this query.
+    ///
+    /// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed
+    /// [`Added<T>`]: crate::ecs::reactivity::added::Added
     pub unsafe fn get_mut_unchecked<'w>(&'w mut self, entity: &Entity) -> Q::Item<'w> {
         unsafe {
             let (arch_id, row_index) = self.get_row_and_arch(entity);

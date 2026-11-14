@@ -82,6 +82,15 @@ fn register_removal_tracking_comp<T: Component>() {
     );
 }
 
+/// A double-buffered [`Resource`] storing [`Entity`] handles whose component `T` was removed
+/// during the previous frame.
+///
+/// Accessed through [`RemovedComponents<T>`] as a [`SystemParam`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`Entity`]: crate::ecs::entity::Entity
+/// [`RemovedComponents<T>`]: crate::ecs::reactivity::removed::RemovedComponents
+/// [`SystemParam`]: crate::app::system::SystemParam
 pub struct RemovedComponentsBuffer<T: Component> {
     read_queue: Vec<Entity>,
     pub(crate) write_queue: Vec<Entity>,
@@ -89,6 +98,9 @@ pub struct RemovedComponentsBuffer<T: Component> {
 }
 
 impl<T: Component> RemovedComponentsBuffer<T> {
+    /// Returns a slice of [`Entity`] handles that had component `T` removed in the previous frame.
+    ///
+    /// [`Entity`]: crate::ecs::entity::Entity
     pub fn entities(&self) -> &[Entity] {
         &self.read_queue
     }
@@ -121,14 +133,21 @@ impl<T: Component> Resource for RemovedComponentsBuffer<T> {}
 /// This prevents downstream systems from accidentally iterating over dead or recycled entity IDs.
 ///
 /// To handle cleanup operations or respond to entities right before they are despawned from the world,
-/// look into the documentation of the [`crate::component::Component`] trait and implement the
-/// [`crate::component::Component::on_remove`] lifecycle hook.
+/// look into the documentation of the [`Component`] trait and implement the
+/// [`Component::on_remove`] lifecycle hook.
+///
+/// [`Component`]: crate::ecs::component::Component
+/// [`Component::on_remove`]: crate::ecs::component::Component::on_remove
 pub struct RemovedComponents<'w, T: Component> {
     buffer: Res<'w, RemovedComponentsBuffer<T>>,
     _marker: PhantomData<T>,
 }
 
 impl<'w, T: Component> RemovedComponents<'w, T> {
+    /// Returns an iterator over the [`Entity`] handles that had component `T` removed in the
+    /// previous frame.
+    ///
+    /// [`Entity`]: crate::ecs::entity::Entity
     pub fn iter(&self) -> impl Iterator<Item = &Entity> {
         self.buffer.read_queue.iter()
     }

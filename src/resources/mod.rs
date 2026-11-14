@@ -5,10 +5,7 @@ use crate::{
 use dashmap::{DashMap, mapref::one::Ref};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::FxBuildHasher;
-use std::{
-    any::{Any, TypeId, type_name},
-    marker::PhantomData,
-};
+use std::any::{Any, TypeId, type_name};
 
 mod parallel_resources;
 
@@ -122,8 +119,26 @@ impl ConcurrentResourceRegistry {
     }
 }
 
+/// A marker trait for global singleton data stored in a [`World`].
+///
+/// Derive this using `#[derive(Resource)]`.
+///
+/// [`World`]: crate::ecs::world::World
 pub trait Resource: 'static {}
 
+/// A shared read-only RAII guard to a thread-safe [`Resource`] of type `T`.
+///
+/// Can be used as a [`SystemParam`] or retrieved directly via [`World::resource`] and
+/// [`World::get_resource`]. Wrap in `Option<Res<T>>` when the resource may not exist.
+///
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if no resource of type `T` exists in the [`World`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+/// [`World::resource`]: crate::ecs::world::World::resource
+/// [`World::get_resource`]: crate::ecs::world::World::get_resource
 pub struct Res<'w, T: Resource + Send + Sync> {
     _guard: RwLockReadGuard<'w, Box<dyn Any + Send + Sync + 'static>>,
     _ref_guard: Ref<'w, TypeId, RwLock<Box<dyn Any + Send + Sync + 'static>>>,
@@ -140,6 +155,19 @@ impl<'w, T: Resource + Send + Sync> std::ops::Deref for Res<'w, T> {
 unsafe impl<'w, T: Resource + Send + Sync> Send for Res<'w, T> {}
 unsafe impl<'w, T: Resource + Send + Sync> Sync for Res<'w, T> {}
 
+/// An exclusive mutable RAII guard to a thread-safe [`Resource`] of type `T`.
+///
+/// Can be used as a [`SystemParam`] or retrieved directly via [`World::resource_mut`] and
+/// [`World::get_resource_mut`]. Wrap in `Option<ResMut<T>>` when the resource may not exist.
+///
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if no resource of type `T` exists in the [`World`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+/// [`World::resource_mut`]: crate::ecs::world::World::resource_mut
+/// [`World::get_resource_mut`]: crate::ecs::world::World::get_resource_mut
 pub struct ResMut<'w, T: Resource + Send + Sync> {
     _guard: RwLockWriteGuard<'w, Box<dyn Any + Send + Sync + 'static>>,
     _ref_guard: Ref<'w, TypeId, RwLock<Box<dyn Any + Send + Sync + 'static>>>,
@@ -162,33 +190,53 @@ impl<'w, T: Resource + Send + Sync> std::ops::DerefMut for ResMut<'w, T> {
 unsafe impl<'w, T: Resource + Send + Sync> Send for ResMut<'w, T> {}
 unsafe impl<'w, T: Resource + Send + Sync> Sync for ResMut<'w, T> {}
 
-pub struct NonSendMut<'w, T: Resource> {
-    pub(crate) val_ptr: *mut T,
-    pub(crate) _marker: PhantomData<&'w mut T>,
+/// An exclusive mutable reference to a main-thread (`NonSend`) [`Resource`] of type `T`.
+///
+/// Systems requesting `NonSendResMut<T>` are automatically scheduled on the main thread. Wrap in
+/// `Option<NonSendResMut<T>>` when the resource may not exist.
+///
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if no resource of type `T` exists in the [`World`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+pub struct NonSendResMut<'w, T: Resource> {
+    pub(crate) res: &'w mut T,
 }
 
-impl<'w, T: Resource> std::ops::Deref for NonSendMut<'w, T> {
+impl<'w, T: Resource> std::ops::Deref for NonSendResMut<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.val_ptr }
+        self.res
     }
 }
 
-impl<'w, T: Resource> std::ops::DerefMut for NonSendMut<'w, T> {
+impl<'w, T: Resource> std::ops::DerefMut for NonSendResMut<'w, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut (*self.val_ptr) }
+        self.res
     }
 }
 
-pub struct NonSend<'w, T: Resource> {
-    pub(crate) val_ptr: *const T,
-    pub(crate) _marker: PhantomData<&'w T>,
+/// A shared read-only reference to a main-thread (`NonSend`) [`Resource`] of type `T`.
+///
+/// Systems requesting `NonSendRes<T>` are automatically scheduled on the main thread. Wrap in
+/// `Option<NonSendRes<T>>` when the resource may not exist.
+///
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if no resource of type `T` exists in the [`World`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+pub struct NonSendRes<'w, T: Resource> {
+    pub(crate) res: &'w T,
 }
 
-impl<'w, T: Resource> std::ops::Deref for NonSend<'w, T> {
+impl<'w, T: Resource> std::ops::Deref for NonSendRes<'w, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &(*self.val_ptr) }
+        self.res
     }
 }
 
@@ -236,14 +284,14 @@ impl<'w, T: Resource + Send + Sync> SystemParam for ResMut<'w, T> {
     }
 }
 
-impl<'w, T: Resource> SystemParam for NonSend<'w, T> {
-    type Item<'world> = NonSend<'world, T>;
+impl<'w, T: Resource> SystemParam for NonSendRes<'w, T> {
+    type Item<'world> = NonSendRes<'world, T>;
 
     fn init_access(system_meta: &mut SystemAccessMeta) {
         let res_id = TypeId::of::<T>();
         if system_meta.has_resource_write(&res_id) {
             panic!(
-                "NonSendResourceBorrowConflictError\n\
+                "NonSendResResourceBorrowConflictError\n\
                 System: {}\n\
                 Resource: {}",
                 system_meta.system_name(),
@@ -259,14 +307,14 @@ impl<'w, T: Resource> SystemParam for NonSend<'w, T> {
     }
 }
 
-impl<'w, T: Resource> SystemParam for NonSendMut<'w, T> {
-    type Item<'world> = NonSendMut<'world, T>;
+impl<'w, T: Resource> SystemParam for NonSendResMut<'w, T> {
+    type Item<'world> = NonSendResMut<'world, T>;
 
     fn init_access(system_meta: &mut SystemAccessMeta) {
         let res_id = TypeId::of::<T>();
         if system_meta.has_resource_write(&res_id) || system_meta.has_resource_read(&res_id) {
             panic!(
-                "NonSendResourceBorrowConflictError\n\
+                "NonSendResResourceBorrowConflictError\n\
                 System: {}\n\
                 Resource: {}",
                 system_meta.system_name(),
@@ -306,11 +354,11 @@ impl<'w, T: Resource + Send + Sync> SystemParam for Option<ResMut<'w, T>> {
     }
 }
 
-impl<'w, T: Resource> SystemParam for Option<NonSend<'w, T>> {
-    type Item<'world> = Option<NonSend<'world, T>>;
+impl<'w, T: Resource> SystemParam for Option<NonSendRes<'w, T>> {
+    type Item<'world> = Option<NonSendRes<'world, T>>;
 
     fn init_access(system_meta: &mut SystemAccessMeta) {
-        NonSend::<T>::init_access(system_meta);
+        NonSendRes::<T>::init_access(system_meta);
     }
 
     fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {
@@ -318,11 +366,11 @@ impl<'w, T: Resource> SystemParam for Option<NonSend<'w, T>> {
     }
 }
 
-impl<'w, T: Resource> SystemParam for Option<NonSendMut<'w, T>> {
-    type Item<'world> = Option<NonSendMut<'world, T>>;
+impl<'w, T: Resource> SystemParam for Option<NonSendResMut<'w, T>> {
+    type Item<'world> = Option<NonSendResMut<'world, T>>;
 
     fn init_access(system_meta: &mut SystemAccessMeta) {
-        NonSendMut::<T>::init_access(system_meta);
+        NonSendResMut::<T>::init_access(system_meta);
     }
 
     fn get_param<'world>(world: &'world World) -> Result<Self::Item<'world>, SystemParamError> {

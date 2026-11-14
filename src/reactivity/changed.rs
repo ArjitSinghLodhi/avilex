@@ -48,6 +48,13 @@ pub(crate) fn register_changed_tracked_component<T: Component>() {
     });
 }
 
+/// Double-buffered change detection state (`read` and `write` flags) for component `T`.
+///
+/// - `read` holds the visible change state for the current frame.
+/// - `write` holds the staged change state that will be swapped into `read` (and reset to
+///   `false`) at the next frame boundary.
+///
+/// [`Component`]: crate::ecs::component::Component
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ChangedState<T: Component> {
     read: bool,
@@ -56,6 +63,9 @@ pub struct ChangedState<T: Component> {
 }
 
 impl<T: Component> ChangedState<T> {
+    /// Creates a new [`ChangedState`] with the given `read` and `write` flags.
+    ///
+    /// [`ChangedState`]: Self
     pub const fn new(read: bool, write: bool) -> Self {
         Self {
             read,
@@ -64,18 +74,22 @@ impl<T: Component> ChangedState<T> {
         }
     }
 
+    /// Returns the `read` flag currently visible this frame.
     pub const fn read(&self) -> bool {
         self.read
     }
 
+    /// Sets the `read` flag currently visible this frame.
     pub fn set_read(&mut self, read: bool) {
         self.read = read;
     }
 
+    /// Returns the `write` flag staged to swap into `read` on the next frame.
     pub const fn write(&self) -> bool {
         self.write
     }
 
+    /// Sets the `write` flag staged to swap into `read` on the next frame.
     pub fn set_write(&mut self, write: bool) {
         self.write = write;
     }
@@ -100,6 +114,7 @@ pub struct ChangedTracker<T: Component> {
 }
 
 impl<T: Component> ChangedTracker<T> {
+    /// Returns `true` if component `T` was marked as changed during the previous frame.
     #[inline(always)]
     pub fn is_changed(&self) -> bool {
         self.changed
@@ -123,7 +138,7 @@ impl<T: Component> QueryData for ChangedTracker<T> {
         register_changed_tracked_component::<T>();
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         archetype.column::<ChangedState<T>>()
     }
 
@@ -149,26 +164,53 @@ impl<T: Component> QueryData for ChangedTracker<T> {
     }
 }
 
+/// A mutable [`QueryData`] item wrapping [`Mut<'w, T>`] that also exposes whether component `T`
+/// changed during the previous frame.
+///
+/// Mutably dereferencing (`DerefMut`) automatically marks `T` as changed for the upcoming frame,
+/// if change tracking is enabled for `T` (see [`reactivity`]). Use
+/// [`ChangedRefMut::bypass_change_detection`] to mutate without triggering change detection.
+///
+/// [`QueryData`]: crate::ecs::query::QueryData
+/// [`Mut<'w, T>`]: crate::ecs::reactivity::changed::Mut
+/// [`reactivity`]: crate::ecs::reactivity
+/// [`ChangedRefMut::bypass_change_detection`]: Self::bypass_change_detection
 pub struct ChangedRefMut<'w, T: Component> {
     value: Mut<'w, T>,
     changed: bool,
 }
 
+/// A read-only wrapper around `&'w T` that also exposes whether component `T` changed during the
+/// previous frame.
+///
+/// Yielded as the read-only item when iterating a [`Query`] over [`ChangedRefMut<'w, T>`]
+/// immutably (for example via `query.iter()`). See [`reactivity`] for how change tracking is
+/// enabled.
+///
+/// [`Query`]: crate::ecs::query::Query
+/// [`ChangedRefMut<'w, T>`]: crate::ecs::reactivity::changed::ChangedRefMut
+/// [`reactivity`]: crate::ecs::reactivity
 pub struct ChangedRef<'w, T: Component> {
     value: &'w T,
     changed: bool,
 }
 
 impl<'w, T: Component> ChangedRefMut<'w, T> {
+    /// Returns `true` if component `T` was marked as changed in the previous frame.
     #[inline(always)]
     pub fn is_changed(&self) -> bool {
         self.changed
     }
+
+    /// Returns a raw mutable reference (`&mut T`) without marking the component as changed.
     #[inline(always)]
     pub fn bypass_change_detection(&mut self) -> &mut T {
         self.value.bypass_change_detection()
     }
 
+    /// Manually marks the component as changed by setting its staged [`ChangedState`] `write` flag.
+    ///
+    /// [`ChangedState`]: crate::ecs::reactivity::changed::ChangedState
     #[inline(always)]
     pub fn trigger_change_detection(&mut self) {
         self.value.trigger_change_detection();
@@ -176,6 +218,7 @@ impl<'w, T: Component> ChangedRefMut<'w, T> {
 }
 
 impl<'w, T: Component> ChangedRef<'w, T> {
+    /// Returns `true` if component `T` was marked as changed in the previous frame.
     #[inline(always)]
     pub fn is_changed(&self) -> bool {
         self.changed
@@ -223,8 +266,8 @@ impl<T: Component> QueryData for ChangedRefMut<'_, T> {
         register_changed_tracked_component::<T>();
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
-        unsafe { <&mut T as QueryData>::init_fetch(archetype) }
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+        <&mut T as QueryData>::init_fetch(archetype)
     }
 
     #[inline(always)]
@@ -302,6 +345,19 @@ impl<T: Component> QueryFilter for Changed<T> {
     }
 }
 
+/// A mutable smart pointer to a [`Component`] of type `T` that automatically marks it as changed
+/// when mutably dereferenced (`DerefMut`), if change tracking is enabled for `T`.
+///
+/// Immutable access via [`Deref`] does not mark the component as changed. Use
+/// [`Mut::bypass_change_detection`] to obtain `&mut T` without triggering change detection, or
+/// [`Mut::trigger_change_detection`] to mark it as changed manually. See [`reactivity`] for how
+/// component tracking is enabled.
+///
+/// [`Component`]: crate::ecs::component::Component
+/// [`Deref`]: std::ops::Deref
+/// [`Mut::bypass_change_detection`]: Self::bypass_change_detection
+/// [`Mut::trigger_change_detection`]: Self::trigger_change_detection
+/// [`reactivity`]: crate::ecs::reactivity
 pub struct Mut<'w, T: Component> {
     pub(crate) value: *mut T,
     pub(crate) changed_state: *mut ChangedState<T>,
@@ -309,11 +365,15 @@ pub struct Mut<'w, T: Component> {
 }
 
 impl<'w, T: Component> Mut<'w, T> {
+    /// Returns a raw mutable reference (`&mut T`) without marking the component as changed.
     #[inline(always)]
     pub fn bypass_change_detection(&mut self) -> &mut T {
         unsafe { &mut *self.value }
     }
 
+    /// Manually marks the component as changed by setting its staged [`ChangedState`] `write` flag.
+    ///
+    /// [`ChangedState`]: crate::ecs::reactivity::changed::ChangedState
     #[inline(always)]
     pub fn trigger_change_detection(&mut self) {
         if !self.changed_state.is_null() {

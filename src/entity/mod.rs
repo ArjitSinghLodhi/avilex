@@ -13,7 +13,16 @@ use crate::{
     world::{World, archetypes::ArchetypeId},
 };
 
-/// A lightweight, unique identifier representing an Entity ID within the ECS engine.
+/// A lightweight, 32-bit generationless identifier representing an entity in a [`World`].
+///
+/// # Handle Lifecycle & Generationless Rule
+/// `Entity` is not `Copy`; instead, cloning and dropping an `Entity` atomically increments and
+/// decrements an internal live-handle counter for its slot. Before an entity's slot can be
+/// despawned and recycled, **all live `Entity` handles referencing it must be dropped** (aside
+/// from the handle passed into `despawn` itself), or the engine will panic to prevent dangling
+/// references without generational overhead.
+///
+/// [`World`]: crate::ecs::world::World
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Entity {
     registry_index: u32,
@@ -24,6 +33,7 @@ impl Entity {
         Self { registry_index }
     }
 
+    /// Returns the raw 32-bit registry slot index of this entity.
     #[inline(always)]
     pub fn registry_index(&self) -> u32 {
         self.registry_index
@@ -106,12 +116,20 @@ pub(crate) static ENTITY_LOCATION_REGISTRY: RwLock<Vec<EntityLocationData>> =
 pub(crate) static ENTITY_HANDLE_COUNT_REGISTRY: ConcurrentRegistry<HandleCount> =
     ConcurrentRegistry::new();
 
+/// Read-only view into a single entity's components in a [`World`], created via [`World::entity`].
+///
+/// [`World`]: crate::ecs::world::World
+/// [`World::entity`]: crate::ecs::world::World::entity
 pub struct EntityRef<'w> {
     pub(crate) world: &'w World,
     pub(crate) entity: &'w Entity,
 }
 
 impl<'w> EntityRef<'w> {
+    /// Returns a shared [`ComponentRef`] guard to component `T` on this entity, or `None` if the
+    /// entity does not have component `T`.
+    ///
+    /// [`ComponentRef`]: crate::ecs::component::ComponentRef
     pub fn get<'a, T: Component>(&'a self) -> Option<ComponentRef<'a, T>> {
         let entity_location_data_ptr = unsafe {
             let ptr = ENTITY_LOCATION_REGISTRY.data_ptr();
@@ -128,10 +146,14 @@ impl<'w> EntityRef<'w> {
         })
     }
 
+    /// Returns a reference to the [`Entity`] handle associated with this view.
+    ///
+    /// [`Entity`]: crate::ecs::entity::Entity
     pub fn entity_id(&self) -> &Entity {
         self.entity
     }
 
+    /// Returns `true` if this entity currently possesses component `T`.
     pub fn contains_component<T: Component>(&self) -> bool {
         let registry_read = ENTITY_LOCATION_REGISTRY.read();
         let entity_location_data_ptr = unsafe {
@@ -153,14 +175,27 @@ impl<'w> From<EntityMut<'w>> for EntityRef<'w> {
     }
 }
 
+/// Mutable view into a single entity's components in a [`World`], created via [`World::entity_mut`].
+///
+/// [`World`]: crate::ecs::world::World
+/// [`World::entity_mut`]: crate::ecs::world::World::entity_mut
 pub struct EntityMut<'w> {
     pub(crate) entity_ref: EntityRef<'w>,
 }
 
 impl<'w> EntityMut<'w> {
+    /// Returns a shared [`ComponentRef`] guard to component `T` on this entity, or `None` if the
+    /// entity does not have component `T`.
+    ///
+    /// [`ComponentRef`]: crate::ecs::component::ComponentRef
     pub fn get<'a, T: Component>(&'a self) -> Option<ComponentRef<'a, T>> {
         self.entity_ref.get::<T>()
     }
+
+    /// Returns an exclusive [`ComponentMut`] guard to component `T` on this entity, or `None` if
+    /// the entity does not have component `T`.
+    ///
+    /// [`ComponentMut`]: crate::ecs::component::ComponentMut
     pub fn get_mut<'a, T: Component>(&'a self) -> Option<ComponentMut<'a, T>> {
         let registry_read = ENTITY_LOCATION_REGISTRY.read();
         let entity_location_data_ptr = unsafe {
@@ -198,10 +233,14 @@ impl<'w> EntityMut<'w> {
         })
     }
 
+    /// Returns a reference to the [`Entity`] handle associated with this view.
+    ///
+    /// [`Entity`]: crate::ecs::entity::Entity
     pub fn entity_id(&self) -> &Entity {
         self.entity_ref.entity_id()
     }
 
+    /// Returns `true` if this entity currently possesses component `T`.
     pub fn contains_component<T: Component>(&self) -> bool {
         self.entity_ref.contains_component::<T>()
     }

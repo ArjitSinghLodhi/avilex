@@ -180,12 +180,10 @@ pub fn derive_query_data_impl(input: TokenStream) -> TokenStream {
             }
 
             #[inline(always)]
-            unsafe fn init_fetch<'w>(
+            fn init_fetch<'w>(
                 archetype: &'w ::avilex::ecs::world::archetypes::Archetype,
             ) -> Self::Fetch<'w> {
-                unsafe {
-                    ( #( <#field_types as ::avilex::ecs::query::QueryData>::init_fetch(archetype), )* )
-                }
+                ( #( <#field_types as ::avilex::ecs::query::QueryData>::init_fetch(archetype), )* )
             }
 
             #[inline(always)]

@@ -11,9 +11,11 @@ use std::sync::Arc;
 ///
 /// `ParallelCommands` can be passed to external or background worker threads, allowing them to
 /// concurrently queue up structural modifications and despawn targets outside the main execution
-/// path. It can be obtained directly from the world layer via [`.par_commands()`] using `app.world().par_commands()`.
+/// path. It can be obtained directly from the world layer via [`.par_commands()`] using `app.world().par_commands()`
+/// or as a [`SystemParam`].
 ///
 /// [`.par_commands()`]: crate::world::World::par_commands
+/// [`SystemParam`]: crate::app::system::SystemParam
 pub struct ParallelCommands {
     pub(crate) queue: Arc<RwLock<CommandQueue>>,
     pub(crate) despawns: Arc<ConcurrentBitSet>,

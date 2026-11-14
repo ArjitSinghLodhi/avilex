@@ -6,7 +6,12 @@ use crate::{
     world::World,
 };
 
-/// A schedule where queue commands and despawns are applied between each system that runs registered in this schedule.
+/// The [`ScheduleLabel`] that runs once at application startup before the main frame loop begins.
+///
+/// Queued commands and entity despawns are flushed after each individual system runs in this
+/// schedule.
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 #[schedule_label(default_executor = StartupExecutor::new)]
 pub struct Startup;
@@ -24,7 +29,7 @@ impl SystemExecutor for StartupExecutor {
     fn run(&mut self, schedule: &mut SystemsSchedule, world: &mut World) {
         let handler = world
             .get_resource::<SystemErrorHandler>()
-            .map(|handler| handler.handler())
+            .map(|handler| handler.0)
             .unwrap_or(default_system_error_handler);
         for system in schedule.systems_mut() {
             if system.should_run(world) {
@@ -39,17 +44,53 @@ impl SystemExecutor for StartupExecutor {
     }
 }
 
+/// The [`ScheduleLabel`] for systems intended to run at the very start of each frame.
+///
+/// Ordered first in the frame loop by [`DefaultSchedulesPlugin`].
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct First;
 
+/// The [`ScheduleLabel`] for systems intended to run before the main update logic.
+///
+/// Ordered between [`First`] and [`Update`] by [`DefaultSchedulesPlugin`].
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`First`]: crate::app::schedule::First
+/// [`Update`]: crate::app::schedule::Update
+/// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct PreUpdate;
 
+/// The [`ScheduleLabel`] for core per-frame application logic.
+///
+/// Ordered between [`PreUpdate`] and [`PostUpdate`] by [`DefaultSchedulesPlugin`].
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`PreUpdate`]: crate::app::schedule::PreUpdate
+/// [`PostUpdate`]: crate::app::schedule::PostUpdate
+/// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct Update;
 
+/// The [`ScheduleLabel`] for systems intended to run after the main update logic.
+///
+/// Ordered between [`Update`] and [`Last`] by [`DefaultSchedulesPlugin`].
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`Update`]: crate::app::schedule::Update
+/// [`Last`]: crate::app::schedule::Last
+/// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct PostUpdate;
 
+/// The [`ScheduleLabel`] for systems intended to run at the very end of each frame.
+///
+/// Ordered last in the frame loop by [`DefaultSchedulesPlugin`].
+///
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
 pub struct Last;

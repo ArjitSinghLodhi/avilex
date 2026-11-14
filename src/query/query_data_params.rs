@@ -20,7 +20,7 @@ impl<T: Component> QueryData for &T {
     ) {
         reads.push(TypeId::of::<T>());
     }
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         archetype.column::<T>()
     }
     unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
@@ -46,7 +46,7 @@ impl<T: Component> QueryData for &mut T {
         archetype.contains_column::<T>()
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         let data_writer = archetype.column_mut::<T>();
         let marker_writer_opt = archetype.get_column_mut::<ChangedState<T>>();
 
@@ -100,7 +100,7 @@ impl QueryData for Entity {
         true
     }
     fn collect_access(_reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {}
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         archetype.entities()
     }
     unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
@@ -127,7 +127,7 @@ impl<T: Component> QueryData for Option<&T> {
         reads.push(TypeId::of::<T>());
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         if archetype.types.contains(&TypeId::of::<T>()) {
             Some(archetype.column_mut::<T>())
         } else {
@@ -172,7 +172,7 @@ impl<T: Component> QueryData for Option<&mut T> {
         writes.push(TypeId::of::<ChangedState<T>>());
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         let marker_writer_opt = archetype.get_column_mut::<ChangedState<T>>();
         let data_writer_opt = archetype.get_column_mut::<T>();
         if let Some(data_writer) = data_writer_opt {
@@ -226,6 +226,11 @@ impl<T: Component> QueryData for Option<&mut T> {
     }
 }
 
+/// A [`QueryData`] item that yields `true` if the entity possesses [`Component`] `T`, or `false`
+/// otherwise, without borrowing the component data.
+///
+/// [`QueryData`]: crate::ecs::query::QueryData
+/// [`Component`]: crate::ecs::component::Component
 pub struct Has<T: Component>(PhantomData<T>);
 
 impl<T: Component> QueryData for Has<T> {
@@ -242,7 +247,7 @@ impl<T: Component> QueryData for Has<T> {
         archetype.contains_column::<T>()
     }
 
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         archetype.get_column::<T>().is_some()
     }
 
@@ -258,7 +263,7 @@ impl<T: Component> QueryData for Has<T> {
     }
 }
 
-macro_rules! impl_world_query_tuple {
+macro_rules! impl_query_data_tuple {
     ($($name:ident -> $idx:tt),*) => {
         impl<$($name: QueryData),*> QueryData for ($($name,)*) {
             type Item<'w> = ($($name::Item<'w>,)*);
@@ -266,7 +271,7 @@ macro_rules! impl_world_query_tuple {
             type Fetch<'w> = ($($name::Fetch<'w>,)*);
 
             fn matches(archetype: &Archetype) -> bool { $($name::matches(archetype))&&* }
-            unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> { unsafe { ($($name::init_fetch(archetype),)*) } }
+            fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> { ($($name::init_fetch(archetype),)*) }
             unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
                 unsafe {($($name::fetch_mut(&fetch.$idx, index),)*)}
             }
@@ -282,14 +287,15 @@ macro_rules! impl_world_query_tuple {
     };
 }
 
-impl_world_query_tuple!(A -> 0);
-impl_world_query_tuple!(A -> 0, B -> 1);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9);
-impl_world_query_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9, K -> 10);
+impl_query_data_tuple!(A -> 0);
+impl_query_data_tuple!(A -> 0, B -> 1);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9, K -> 10);
+impl_query_data_tuple!(A -> 0, B -> 1, C -> 2, D -> 3, E -> 4, F -> 5, G -> 6, H -> 7, I -> 8, J -> 9, K -> 10, L -> 11);

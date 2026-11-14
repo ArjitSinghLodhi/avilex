@@ -14,6 +14,13 @@ use crate::{
     world::World,
 };
 
+/// A marker trait for types that can be dispatched via [`EventWriter`] and observed via
+/// [`EventReader`].
+///
+/// Derive this using `#[derive(Event)]`.
+///
+/// [`EventWriter`]: crate::ecs::events::EventWriter
+/// [`EventReader`]: crate::ecs::events::EventReader
 pub trait Event: Send + Sync + 'static {}
 
 pub(crate) struct TrackedEventsMeta {
@@ -75,8 +82,7 @@ impl<T: Event> EventQueue<T> {
         }
     }
 }
-
-/// A system parameter used to dispatch events of type `T` to the engine's event queue.
+/// A [`SystemParam`] used to dispatch events of type `T` to the engine's event queue.
 ///
 /// # Architecture & Timing
 ///
@@ -90,8 +96,13 @@ impl<T: Event> EventQueue<T> {
 /// Because event visibility lasts for exactly one frame window, any system designed to process these events
 /// **must run every single frame** to avoid missing data.
 ///
-/// [`.send`]: EventWriter::send
-/// [`.send_batch`]: EventWriter::send_batch
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if event type `T` has not been registered in the [`World`]
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+/// [`.send`]: Self::send
+/// [`.send_batch`]: Self::send_batch
 pub struct EventWriter<'a, T: Event> {
     pub(crate) buffer: Res<'a, EventBuffer<T>>,
 }
@@ -127,31 +138,44 @@ impl<'a, T: Event> SystemParam for EventWriter<'a, T> {
     }
 }
 
-/// A system parameter used to read dispatched events of type `T` from the engine's event queue.
+/// A [`SystemParam`] used to read dispatched events of type `T` from the engine's event queue.
 ///
 /// # Architecture & Timing
 ///
 /// Event handling in avilex is globally double-buffered and strictly time-bound. It operates
 /// on the exact same 3-frame lifecycle used by component tracking (`Added` and `Changed` flags):
 ///
-/// * **Frame 1 (Sending):** Events are written via an `EventWriter` but remain hidden in the active write buffer.
+/// * **Frame 1 (Sending):** Events are written via an [`EventWriter`] but remain hidden in the active write buffer.
 /// * **Frame 2 (Reading Window):** The internal buffers swap globally, making these events visible to this reader via [`.read()`] or [`.par_read()`].
 /// * **Frame 3 (Purge):** The buffer is cleared. Events are unconditionally dropped, regardless of whether any systems read them.
 ///
 /// Because event visibility lasts for exactly one frame window, any system designed to process these events
 /// **must run every single frame** to avoid missing data.
 ///
-/// [`.read()`]: EventReader::read
-/// [`.par_read()`]: EventReader::par_read
+/// # Panics
+/// Panics when fetched as a [`SystemParam`] if event type `T` has not been registered in the [`World`]
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`World`]: crate::ecs::world::World
+/// [`EventWriter`]: crate::ecs::events::EventWriter
+/// [`.read()`]: Self::read
+/// [`.par_read()`]: Self::par_read
 pub struct EventReader<'w, T: Event> {
     pub(crate) buffer: Res<'w, EventBuffer<T>>,
 }
 
 impl<'w, T: Event> EventReader<'w, T> {
+    /// Returns an [`Iterator`] over all events of type `T` sent during the previous frame.
+    ///
+    /// [`Iterator`]: std::iter::Iterator
     pub fn read(&self) -> impl Iterator<Item = &T> {
         unsafe { self.buffer.read_queue.queue.iter() }
     }
 
+    /// Returns a Rayon [`IndexedParallelIterator`] over all events of type `T` sent during the
+    /// previous frame.
+    ///
+    /// [`IndexedParallelIterator`]: rayon::iter::IndexedParallelIterator
     pub fn par_read(&self) -> impl IndexedParallelIterator<Item = &T> {
         let queue = &self.buffer.read_queue.queue;
         let len = queue.len();

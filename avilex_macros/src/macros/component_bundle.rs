@@ -86,7 +86,7 @@ pub fn derive_bundle_impl(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        impl #impl_generics ::avilex::ecs::commands::bundle::ComponentBundle for #name #ty_generics #where_clause {
+        impl #impl_generics ::avilex::ecs::component::ComponentBundle for #name #ty_generics #where_clause {
             const TYPE_IDS: &'static [::std::any::TypeId] = &[
                 #( ::std::any::TypeId::of::<#types>() ),*
             ];
@@ -97,13 +97,13 @@ pub fn derive_bundle_impl(input: TokenStream) -> TokenStream {
 
             fn register_bundle_hooks(world: &mut ::avilex::ecs::world::World) {
                 #(
-                    <#types as ::avilex::ecs::commands::bundle::ComponentBundle>::register_bundle_hooks(world);
+                    <#types as ::avilex::ecs::component::ComponentBundle>::register_bundle_hooks(world);
                 )*
             }
 
             fn create_empty_columns(columns: &mut ::avilex::__private::indexmap::IndexMap<::std::any::TypeId, ::avilex::ecs::world::archetypes::ComponentColumn, ::avilex::__private::rustc_hash::FxBuildHasher>) {
                 #(
-                    <#types as ::avilex::ecs::commands::bundle::ComponentBundle>::create_empty_columns(columns);
+                    <#types as ::avilex::ecs::component::ComponentBundle>::create_empty_columns(columns);
                 )*
             }
 
@@ -111,7 +111,7 @@ pub fn derive_bundle_impl(input: TokenStream) -> TokenStream {
                 #destructure
                 unsafe {
                     #(
-                        <#types as ::avilex::ecs::commands::bundle::ComponentBundle>::insert_to_archetype(#destructure_patterns, archetype, row_idx);
+                        <#types as ::avilex::ecs::component::ComponentBundle>::insert_to_archetype(#destructure_patterns, archetype, row_idx);
                     )*
                 }
             }

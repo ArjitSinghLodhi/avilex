@@ -14,6 +14,17 @@ use crate::system::{System, SystemIdentity, SystemInput, SystemNode};
 use crate::world::World;
 use std::fmt::Debug;
 
+/// A marker trait for grouping systems into shared scheduling and execution bounds.
+///
+/// Derive this using `#[derive(SystemSet, Debug, PartialEq, Eq, Clone)]`.
+///
+/// Systems can be assigned to a set via [`ConfigureSystemConfigs::in_set`], and sets can be
+/// ordered or gated as a single unit via [`App::configure_sets`]. Any [`Condition`] attached to
+/// a `SystemSet` is evaluated once for the entire group.
+///
+/// [`ConfigureSystemConfigs::in_set`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::in_set
+/// [`App::configure_sets`]: crate::app::App::configure_sets
+/// [`Condition`]: crate::app::system::condition::Condition
 pub trait SystemSet: Debug + DynEq + Send + Sync + 'static {
     #[doc(hidden)]
     fn dyn_clone(&self) -> Box<dyn SystemSet>;
@@ -93,12 +104,20 @@ impl<S: SystemSet> GuardNode<S> {
     }
 }
 
+/// [`SystemIdentity`] implementation identifying the internal condition-guard node for a
+/// [`SystemSet`].
+///
+/// [`SystemIdentity`]: crate::app::system::SystemIdentity
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
 pub struct GuardIdentity {
     set: Box<dyn SystemSet>,
     name: String,
 }
 
 impl GuardIdentity {
+    /// Returns a shared reference to the [`SystemSet`] associated with this guard identity.
+    ///
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
     pub fn system_set(&self) -> &dyn SystemSet {
         &*self.set
     }

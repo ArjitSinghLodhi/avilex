@@ -11,6 +11,23 @@ use crate::{
     world::World,
 };
 
+/// A [`SystemExecutor`] that runs independent systems in parallel across worker threads while
+/// respecting ordering constraints and routing `NonSend` systems to the main thread.
+///
+/// Systems in a [`SystemsSchedule`] are grouped into execution batches:
+/// - **Parallel batches** execute concurrently across a Rayon thread pool when systems have
+///   disjoint data access and no ordering dependencies between them.
+/// - **Sequential batches** run on the main thread to satisfy ordering constraints or safely
+///   execute thread-unsafe (`NonSend`) systems.
+///
+/// Any errors returned by systems are forwarded immediately to the handler stored in the
+/// [`SystemErrorHandler`] resource, falling back to [`default_system_error_handler`] if none is
+/// inserted.
+///
+/// [`SystemExecutor`]: SystemExecutor
+/// [`SystemsSchedule`]: SystemsSchedule
+/// [`SystemErrorHandler`]: SystemErrorHandler
+/// [`default_system_error_handler`]: default_system_error_handler
 pub struct MultiThreadedExecutor {
     parallel_batches: Vec<ParallelSystemsBatchRange>,
 }
@@ -22,6 +39,9 @@ impl Default for MultiThreadedExecutor {
 }
 
 impl MultiThreadedExecutor {
+    /// Creates a new, uninitialized [`MultiThreadedExecutor`].
+    ///
+    /// [`MultiThreadedExecutor`]: Self
     pub fn new() -> Self {
         Self {
             parallel_batches: Vec::new(),
@@ -309,7 +329,7 @@ impl SystemExecutor for MultiThreadedExecutor {
     fn run(&mut self, schedule: &mut SystemsSchedule, world: &mut World) {
         let handler = world
             .get_resource::<SystemErrorHandler>()
-            .map(|handler| handler.handler())
+            .map(|handler| handler.0)
             .unwrap_or(default_system_error_handler);
         let systems = schedule.systems_mut();
         for batch in &self.parallel_batches {

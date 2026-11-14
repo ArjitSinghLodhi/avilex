@@ -1,4 +1,3 @@
-pub(crate) mod bundle;
 mod command_queue;
 pub(crate) mod command_types;
 pub(crate) mod concurrent_despawn_set;
@@ -10,7 +9,6 @@ use std::{marker::PhantomData, mem::transmute, sync::Arc};
 
 use crate::{
     commands::{
-        bundle::ComponentBundle,
         command_queue::CommandQueue,
         command_types::{
             BatchSpawnCommand, BatchSpawnCommandCore, InsertComponentsCommand,
@@ -18,14 +16,26 @@ use crate::{
         },
         concurrent_despawn_set::ConcurrentBitSet,
     },
+    component::bundle::ComponentBundle,
     entity::Entity,
     resources::Resource,
     system::{SystemAccessMeta, SystemParam, system_error::SystemParamError},
     world::World,
 };
 
+/// A deferred operation that mutates a [`World`] when flushed, typically queued via [`Commands`]
+/// or [`ParallelCommands`].
+///
+/// [`World`]: crate::ecs::world::World
+/// [`Commands`]: crate::ecs::commands::Commands
+/// [`ParallelCommands`]: crate::ecs::commands::ParallelCommands
 pub trait Command: 'static + Send {
+    /// The return value produced when this command is applied.
     type Out;
+
+    /// Executes this command against `world`.
+    ///
+    /// [`World`]: crate::ecs::world::World
     fn apply(self, world: &mut World) -> Self::Out;
 }
 
@@ -45,12 +55,25 @@ impl CommandBuffer {
     }
 }
 
+/// A [`SystemParam`] used to queue deferred structural mutations (such as spawning or despawning
+/// entities, inserting or removing components, and managing resources) to be applied at the next
+/// command flush point.
+///
+/// For out-of-band worker threads or async tasks running outside scheduled systems, use
+/// [`ParallelCommands`] via [`World::par_commands`] or as a [`SystemParam`].
+///
+/// [`SystemParam`]: crate::app::system::SystemParam
+/// [`ParallelCommands`]: crate::ecs::commands::ParallelCommands
+/// [`World::par_commands`]: crate::ecs::world::World::par_commands
 pub struct Commands<'a> {
     pub(crate) queue: RwLockReadGuard<'a, CommandQueue>,
     pub(crate) despawns: Arc<ConcurrentBitSet>,
 }
 
 impl<'a> Commands<'a> {
+    /// Pushes a custom [`Command`] onto the deferred command queue.
+    ///
+    /// [`Command`]: crate::ecs::commands::Command
     pub fn queue<C: Command<Out = ()>>(&self, command: C) {
         self.queue.queue(command);
     }
@@ -78,6 +101,9 @@ impl<'a> Commands<'a> {
         });
     }
 
+    /// Returns an [`EntityCommands`] handle for queueing deferred operations targeting `entity`.
+    ///
+    /// [`EntityCommands`]: crate::ecs::commands::EntityCommands
     pub fn entity<'b>(&'b self, entity: &'b Entity) -> EntityCommands<'a, 'b> {
         EntityCommands {
             entity_id: entity,
@@ -89,6 +115,11 @@ impl<'a> Commands<'a> {
     ///
     /// This command transfers ownership of the resource to the world during the command execution
     /// phase. If a resource of type `T` already exists, it is unconditionally dropped and replaced.
+    ///
+    /// For immediate resource insertion without waiting for the command flush phase, use
+    /// [`ParallelResourceAccessor`].
+    ///
+    /// [`ParallelResourceAccessor`]: crate::ecs::resources::ParallelResourceAccessor
     pub fn insert_resource<T: Resource + Send + Sync>(&self, resource: T) {
         self.queue(|world: &mut World| {
             world.insert_resource(resource);
@@ -99,6 +130,11 @@ impl<'a> Commands<'a> {
     ///
     /// The resource is dropped during the command execution phase. If the resource does not
     /// exist in the world, the engine handles it gracefully and silently does nothing.
+    ///
+    /// For immediate resource removal without waiting for the command flush phase, use
+    /// [`ParallelResourceAccessor`].
+    ///
+    /// [`ParallelResourceAccessor`]: crate::ecs::resources::ParallelResourceAccessor
     pub fn remove_resource<T: Resource + Send + Sync>(&self) {
         self.queue(|world: &mut World| {
             world.remove_resource::<T>();
@@ -106,6 +142,10 @@ impl<'a> Commands<'a> {
     }
 }
 
+/// A command builder scoped to a specific [`Entity`].
+///
+/// [`Entity`]: crate::ecs::entity::Entity
+/// [`Commands::entity`]: crate::ecs::commands::Commands::entity
 pub struct EntityCommands<'a, 'b> {
     entity_id: &'b Entity,
     commands: &'b Commands<'a>,
@@ -167,6 +207,9 @@ impl<'a, 'b> EntityCommands<'a, 'b> {
         self
     }
 
+    /// Returns a reference to the target [`Entity`] identifier.
+    ///
+    /// [`Entity`]: crate::ecs::entity::Entity
     pub fn entity_id(&self) -> &Entity {
         self.entity_id
     }

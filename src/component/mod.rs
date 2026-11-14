@@ -1,3 +1,4 @@
+pub(crate) mod bundle;
 pub(crate) mod hooks;
 
 use std::ops::{Deref, DerefMut};
@@ -8,6 +9,10 @@ use crate::{
     world::archetypes::{ComponentColumnRead, ComponentColumnWrite},
 };
 
+/// A marker and lifecycle-hook trait for data types that can be attached to an [`Entity`].
+///
+/// Derive this using `#[derive(Component)]` (with optional `#[component(on_add = ..., on_insert = ..., on_remove = ..., on_discard = ...)]` attributes).
+///
 /// # Automatic Registration & Preservation Invariants
 /// Any hooks defined on this trait **WILL be registered automatically** when the component is
 /// first encountered by the engine (e.g., during a spawn, batch spawn, insertion, or removal action).
@@ -18,8 +23,9 @@ use crate::{
 /// hooks by appending them to the internal execution array instead of overwriting them, guaranteeing
 /// that your baseline trait capabilities are always active.
 ///
-/// [`World::register_component_hooks`]: crate::world::World::register_component_hooks
-/// [`ComponentHooksRegisterer`]: crate::component::hooks::ComponentHooksRegisterer
+/// [`Entity`]: crate::ecs::entity::Entity
+/// [`World::register_component_hooks`]: crate::ecs::world::World::register_component_hooks
+/// [`ComponentHooksRegisterer`]: crate::ecs::component::hooks::ComponentHooksRegisterer
 pub trait Component: Send + Sync + 'static {
     /// Callback executed synchronously when this component is newly added to an entity.
     ///
@@ -85,6 +91,12 @@ pub trait Component: Send + Sync + 'static {
     }
 }
 
+/// A shared read-only RAII guard to a [`Component`] of type `T` on a single entity, returned by
+/// [`EntityRef::get`] and [`EntityMut::get`].
+///
+/// [`Component`]: crate::ecs::component::Component
+/// [`EntityRef::get`]: crate::ecs::entity::EntityRef::get
+/// [`EntityMut::get`]: crate::ecs::entity::EntityMut::get
 pub struct ComponentRef<'a, T: Component> {
     pub(crate) _guard: ComponentColumnRead<'a, T>,
     pub(crate) ptr: *const T,
@@ -98,6 +110,15 @@ impl<'a, T: Component> Deref for ComponentRef<'a, T> {
     }
 }
 
+/// An exclusive mutable RAII guard to a [`Component`] of type `T` on a single entity, returned by
+/// [`EntityMut::get_mut`].
+///
+/// Mutably dereferencing (`DerefMut`) delegates to [`Mut<'a, T>`], automatically marking `T` as
+/// changed when change tracking is enabled for `T`.
+///
+/// [`Component`]: crate::ecs::component::Component
+/// [`EntityMut::get_mut`]: crate::ecs::entity::EntityMut::get_mut
+/// [`Mut<'a, T>`]: crate::ecs::reactivity::changed::Mut
 pub struct ComponentMut<'a, T: Component> {
     pub(crate) _guard_val: ComponentColumnWrite<'a, T>,
     pub(crate) _guard_marker: Option<ComponentColumnWrite<'a, ChangedState<T>>>,

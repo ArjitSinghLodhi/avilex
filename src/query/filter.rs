@@ -2,15 +2,42 @@ use std::{any::TypeId, marker::PhantomData};
 
 use crate::{ecs::component::Component, system::AccessVec, world::archetypes::Archetype};
 
+/// A trait for predicates that restrict which entities and rows match a [`Query`].
+///
+/// [`Query`]: crate::ecs::query::Query
 pub trait QueryFilter {
+    /// Per-archetype filter state initialized once before evaluating rows.
     type FilterData<'w>: Sync;
+
+    /// Initializes the per-archetype [`QueryFilter::FilterData`] state for `archetype`.
+    ///
+    /// [`QueryFilter::FilterData`]: Self::FilterData
+    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
     fn init_filter_data<'w>(archetype: &Archetype) -> Self::FilterData<'w>;
+
+    /// Returns `true` if `archetype` can potentially contain entities matching this filter.
+    ///
+    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
     fn matches(archetype: &Archetype) -> bool;
+
+    /// Returns `true` if the entity at `row_idx` satisfies this filter given `filter_data`.
     fn matches_row<'w>(filter_data: &Self::FilterData<'w>, row_idx: usize) -> bool;
+
+    /// Records component [`TypeId`] inclusion (`withs`) and exclusion (`withouts`) constraints
+    /// used for disjointness and access conflict analysis.
+    ///
+    /// [`TypeId`]: std::any::TypeId
     fn collect_filter(withs: &mut AccessVec<TypeId>, withouts: &mut AccessVec<TypeId>);
+
+    /// Records any component [`TypeId`] reads or writes performed while evaluating this filter.
+    ///
+    /// [`TypeId`]: std::any::TypeId
     fn collect_filter_access(reads: &mut AccessVec<TypeId>, writes: &mut AccessVec<TypeId>);
 }
 
+/// A [`QueryFilter`] that matches only entities possessing component `T`.
+///
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
 pub struct With<T: Component>(PhantomData<T>);
 impl<T: Component> QueryFilter for With<T> {
     type FilterData<'w> = bool;
@@ -29,6 +56,9 @@ impl<T: Component> QueryFilter for With<T> {
     fn collect_filter_access(_reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {}
 }
 
+/// A [`QueryFilter`] that matches only entities lacking component `T`.
+///
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
 pub struct Without<T: Component>(PhantomData<T>);
 impl<T: Component> QueryFilter for Without<T> {
     type FilterData<'w> = bool;
@@ -48,8 +78,14 @@ impl<T: Component> QueryFilter for Without<T> {
     fn collect_filter_access(_reads: &mut AccessVec<TypeId>, _writes: &mut AccessVec<TypeId>) {}
 }
 
+/// A [`QueryFilter`] combinator that matches entities satisfying at least one filter in tuple `T`.
+///
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
 pub struct Or<T>(PhantomData<T>);
 
+/// A [`QueryFilter`] combinator that matches entities which do **not** satisfy inner filter `F`.
+///
+/// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
 pub struct Not<F>(PhantomData<F>);
 
 impl<F: QueryFilter> QueryFilter for Not<F> {

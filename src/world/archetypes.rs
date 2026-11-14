@@ -14,9 +14,10 @@ use indexmap::{IndexMap, IndexSet};
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
-use crate::{commands::bundle::ComponentBundle, ecs::component::Component, entity::Entity};
-
-use crate::reactivity::TRACKED_COMPONENTS;
+use crate::{
+    component::bundle::ComponentBundle, ecs::component::Component, entity::Entity,
+    reactivity::TRACKED_COMPONENTS,
+};
 
 pub(crate) trait AnyColumn: Any {
     unsafe fn swap_remove_erased(&mut self, idx: usize);
@@ -69,6 +70,11 @@ impl ArchetypeId {
     }
 }
 
+/// A type-erased, thread-safe storage column for a single [`Component`] type within an [`Archetype`].
+///
+/// Internally wraps a heap-allocated `Vec<T>` behind an [`RwLock`], allowing multiple systems
+/// or parallel workers to read component arrays concurrently while guaranteeing exclusive access
+/// during writes or structural mutations.
 pub struct ComponentColumn {
     pub(crate) data: RwLock<Box<dyn AnyColumn>>,
 }
@@ -83,6 +89,13 @@ impl ComponentColumn {
     }
 }
 
+/// A read-only RAII guard providing direct, zero-overhead access to a typed component column (`Vec<T>`).
+///
+/// Created via [`Archetype::get_column`] or [`Archetype::column`]. While held, this guard maintains
+/// a shared read lock on the underlying [`ComponentColumn`], blocking structural mutations or
+/// mutable borrows of the same column across threads.
+///
+/// Implements [`Deref<Target = Vec<T>>`] for direct slice and index access.
 pub struct ComponentColumnRead<'a, T: Component> {
     _guard: RwLockReadGuard<'a, Box<dyn AnyColumn>>,
     column: *const Vec<T>,
@@ -98,6 +111,14 @@ impl<'a, T: Component> Deref for ComponentColumnRead<'a, T> {
     }
 }
 
+/// An exclusive read-write RAII guard providing direct, zero-overhead mutable access to a typed
+/// component column (`Vec<T>`).
+///
+/// Created via [`Archetype::get_column_mut`] or [`Archetype::column_mut`]. While held, this guard
+/// maintains an exclusive write lock on the underlying [`ComponentColumn`], ensuring safe parallel
+/// iteration and mutation without data races.
+///
+/// Implements [`Deref<Target = Vec<T>>`] and [`DerefMut`].
 pub struct ComponentColumnWrite<'a, T: Component> {
     _guard: RwLockWriteGuard<'a, Box<dyn AnyColumn>>,
     column: *mut Vec<T>,
@@ -119,6 +140,10 @@ impl<'a, T: Component> DerefMut for ComponentColumnWrite<'a, T> {
     }
 }
 
+/// A read-only RAII guard providing access to the dense [`Entity`] table of an [`Archetype`].
+///
+/// Created via [`Archetype::entities`]. Each index `i` in this vector corresponds directly to
+/// row `i` across every [`ComponentColumn`] stored in the same archetype.
 pub struct EntitiesRead<'w> {
     entities_guard: RwLockReadGuard<'w, Vec<Entity>>,
 }
@@ -130,6 +155,24 @@ impl<'w> Deref for EntitiesRead<'w> {
     }
 }
 
+/// A dense, table-based storage container grouping all entities that share the exact same set of
+/// [`Component`] types.
+///
+/// # Memory Layout & Row Alignment
+/// An `Archetype` stores entities and their components in parallel, tightly packed contiguous
+/// arrays (`Vec<T>`) indexed by row:
+/// - Row `i` in [`Archetype::entities`] corresponds 1:1 to element `i` in every [`ComponentColumn`].
+/// - Storing identical component layouts together maximizes CPU cache-line saturation and
+///   hardware prefetch efficiency during query iteration.
+///
+/// # Deadlocks
+/// Each component column is guarded by an independent [`RwLock`]. Acquiring a write guard
+/// ([`column_mut`](Self::column_mut)) while holding any read or write guard for the **same**
+/// component type `T` on the same thread will deadlock. Accessing **different** component
+/// types (`T` and `U`) on the same archetype concurrently is safe.
+///
+/// [`QueryData`]: crate::query::QueryData
+/// [`QueryFilter`]: crate::query::filter::QueryFilter
 pub struct Archetype {
     pub(crate) id: ArchetypeId,
     pub(crate) types: IndexSet<TypeId, FxBuildHasher>,
@@ -157,6 +200,10 @@ impl Archetype {
         }
     }
 
+    /// Acquires a shared read lock over the dense list of [`Entity`] handles stored in this archetype.
+    ///
+    /// The returned [`EntitiesRead`] guard dereferences to `&Vec<Entity>`, where each index aligns
+    /// 1:1 with the row index in every component column of this archetype.
     #[inline(always)]
     pub fn entities<'w>(&'w self) -> EntitiesRead<'w> {
         let guard = self.entities.read();
@@ -165,10 +212,19 @@ impl Archetype {
         }
     }
 
+    /// Returns `true` if this archetype stores a column for component type `T`.
     pub fn contains_column<T: Component>(&self) -> bool {
         self.types.contains(&TypeId::of::<T>())
     }
 
+    /// Attempts to acquire a shared, read-only guard for the component column of type `T`.
+    ///
+    /// Returns `None` if this archetype does not contain component `T`.
+    ///
+    /// # Deadlocks & Blocking
+    /// Blocks the current thread if another thread holds a mutable write lock
+    /// ([`ComponentColumnWrite`]) on the same column. Calling this while the **same** thread
+    /// already holds a write guard for `T` will deadlock.
     pub fn get_column<'a, T: Component>(&self) -> Option<ComponentColumnRead<'a, T>> {
         let col = self.columns.get(&TypeId::of::<T>())?;
         let read_guard = col.data.read();
@@ -183,6 +239,15 @@ impl Archetype {
         unsafe { transmute(opt_read) }
     }
 
+    /// Acquires a shared, read-only guard for the component column of type `T`.
+    ///
+    /// # Panics
+    /// Panics with `ColumnMissingError` if this archetype does not contain component `T`.
+    /// Use [`Archetype::get_column`] for a non-panicking alternative.
+    ///
+    /// # Deadlocks & Blocking
+    /// Blocks if another thread holds a write lock on `T`, and deadlocks if the **same** thread
+    /// already holds a [`ComponentColumnWrite`] guard for `T`.
     pub fn column<'a, T: Component>(&self) -> ComponentColumnRead<'a, T> {
         self.get_column::<T>().unwrap_or_else(|| {
             panic!(
@@ -193,6 +258,14 @@ impl Archetype {
         })
     }
 
+    /// Attempts to acquire an exclusive, mutable guard for the component column of type `T`.
+    ///
+    /// Returns `None` if this archetype does not contain component `T`.
+    ///
+    /// # Deadlocks & Blocking
+    /// Blocks the current thread until all active readers ([`ComponentColumnRead`]) or any existing
+    /// writer ([`ComponentColumnWrite`]) on this column release their locks. Calling this while
+    /// the **same** thread holds any read or write guard for `T` will deadlock.
     pub fn get_column_mut<'a, T: Component>(&self) -> Option<ComponentColumnWrite<'a, T>> {
         let col = self.columns.get(&TypeId::of::<T>())?;
         let mut write_guard = col.data.write();
@@ -207,6 +280,15 @@ impl Archetype {
         unsafe { transmute(opt_write) }
     }
 
+    /// Acquires an exclusive, mutable guard for the component column of type `T`.
+    ///
+    /// # Panics
+    /// Panics with `ColumnMissingError` if this archetype does not contain component `T`.
+    /// Use [`Archetype::get_column_mut`] for a non-panicking alternative.
+    ///
+    /// # Deadlocks & Blocking
+    /// Blocks until existing locks on `T` are released, and deadlocks if the **same** thread
+    /// already holds any read or write guard for `T`.
     pub fn column_mut<'a, T: Component>(&self) -> ComponentColumnWrite<'a, T> {
         self.get_column_mut::<T>().unwrap_or_else(|| {
             panic!(

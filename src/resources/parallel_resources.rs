@@ -11,7 +11,7 @@ use std::{marker::PhantomData, sync::Arc};
 /// concurrently read or modify global resources outside the main execution path. It can be obtained
 /// directly from the world layer via [`.par_resource_accessor()`].
 ///
-/// This handle is also fully supported for use as a system parameter.
+/// This handle is also fully supported for use as a [`SystemParam`].
 ///
 /// # Deadlock Safety Rules
 /// Cross-thread parallel access is entirely safe. However, because the underlying storage utilizes synchronous
@@ -21,7 +21,8 @@ use std::{marker::PhantomData, sync::Arc};
 /// * **Exclusive Access (Unique Borrow):** Attempting to open a mutable scope while another active scope (mutable or immutable)
 ///   targets that same resource on the same thread will trigger a deadlock, equivalent to violating `&mut` exclusivity.
 ///
-/// [`.par_resource_accessor()`]: crate::world::World::par_resource_accessor
+/// [`.par_resource_accessor()`]: crate::ecs::world::World::par_resource_accessor
+/// [`SystemParam`]: crate::app::system::SystemParam
 pub struct ParallelResourceAccessor<T: Resource + Send + Sync> {
     pub(crate) resources: Arc<ConcurrentResourceRegistry>,
     pub(crate) _marker: PhantomData<T>,
@@ -41,6 +42,15 @@ unsafe impl<T: Resource + Send + Sync> Sync for ParallelResourceAccessor<T> {}
 unsafe impl<T: Resource + Send + Sync> ParallelSystemParam for ParallelResourceAccessor<T> {}
 
 impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
+    /// Opens a shared read-only [`Res<T>`] scope, executes `f`, and releases the lock when the
+    /// closure returns.
+    ///
+    /// # Panics
+    /// Panics if no resource of type `T` exists in the registry. Use
+    /// [`ParallelResourceAccessor::scope_opt`] for a non-panicking alternative.
+    ///
+    /// [`Res<T>`]: crate::ecs::resources::Res
+    /// [`ParallelResourceAccessor::scope_opt`]: Self::scope_opt
     pub fn scope<F, R>(&self, f: F) -> R
     where
         F: for<'b> FnOnce(Res<'b, T>) -> R,
@@ -49,6 +59,15 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
         f(resource)
     }
 
+    /// Opens an exclusive mutable [`ResMut<T>`] scope, executes `f`, and releases the lock when
+    /// the closure returns.
+    ///
+    /// # Panics
+    /// Panics if no resource of type `T` exists in the registry. Use
+    /// [`ParallelResourceAccessor::scope_mut_opt`] for a non-panicking alternative.
+    ///
+    /// [`ResMut<T>`]: crate::ecs::resources::ResMut
+    /// [`ParallelResourceAccessor::scope_mut_opt`]: Self::scope_mut_opt
     pub fn scope_mut<F, R>(&self, f: F) -> R
     where
         F: for<'b> FnOnce(ResMut<'b, T>) -> R,
@@ -57,6 +76,10 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
         f(resource)
     }
 
+    /// Opens an optional shared read-only `Option<`[`Res<T>`]`>` scope, executes `f`, and releases
+    /// the lock when the closure returns.
+    ///
+    /// [`Res<T>`]: crate::ecs::resources::Res
     pub fn scope_opt<F, R>(&self, f: F) -> R
     where
         F: for<'b> FnOnce(Option<Res<'b, T>>) -> R,
@@ -65,6 +88,10 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
         f(resource)
     }
 
+    /// Opens an optional exclusive mutable `Option<`[`ResMut<T>`]`>` scope, executes `f`, and
+    /// releases the lock when the closure returns.
+    ///
+    /// [`ResMut<T>`]: crate::ecs::resources::ResMut
     pub fn scope_mut_opt<F, R>(&self, f: F) -> R
     where
         F: for<'b> FnOnce(Option<ResMut<'b, T>>) -> R,
@@ -73,6 +100,9 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
         f(resource)
     }
 
+    /// Returns `true` if a [`Resource`] of type `T` is currently present in the registry.
+    ///
+    /// [`Resource`]: crate::ecs::resources::Resource
     pub fn is_present(&self) -> bool {
         self.resources.contains_resource::<T>()
     }
@@ -84,7 +114,7 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
     ///
     /// It is best to use it inside a background thread.
     ///
-    /// [`Commands::insert_resource`]: crate::commands::Commands::insert_resource
+    /// [`Commands::insert_resource`]: crate::ecs::commands::Commands::insert_resource
     pub fn insert_resource(&self, resource: T) -> Option<T> {
         self.resources.insert_resource(resource)
     }
@@ -96,7 +126,7 @@ impl<T: Resource + Send + Sync> ParallelResourceAccessor<T> {
     ///
     /// It is best to use it inside a background thread.
     ///
-    /// [`Commands::remove_resource`]: crate::commands::Commands::remove_resource
+    /// [`Commands::remove_resource`]: crate::ecs::commands::Commands::remove_resource
     pub fn remove_resource(&self) -> Option<T> {
         self.resources.remove_resource::<T>()
     }

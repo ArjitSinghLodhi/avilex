@@ -10,8 +10,19 @@ use crate::{
 };
 use std::fmt::Debug;
 
+/// A marker trait for types that can be used as finite state machines in an [`App`].
+///
+/// Derive this using `#[derive(States, PartialEq, Eq, Clone, Debug)]`.
+///
+/// [`App`]: crate::app::App
 pub trait States: PartialEq + Eq + Send + Sync + Clone + Debug + 'static {}
 
+/// A [`Resource`] holding the active state of type `T` along with its previous value.
+///
+/// Updated automatically at the start of each frame when a transition is queued via [`NextState<T>`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`NextState<T>`]: crate::app::states::NextState
 pub struct State<T: States> {
     current: T,
     last: T,
@@ -21,19 +32,32 @@ pub struct State<T: States> {
 impl<T: States> Resource for State<T> {}
 
 impl<T: States> State<T> {
+    /// Returns a reference to the currently active state.
     pub fn current(&self) -> &T {
         &self.current
     }
 
+    /// Returns a reference to the state that was active before the most recent transition.
+    ///
+    /// Equals [`State::current`] if no transition has occurred yet.
+    ///
+    /// [`State::current`]: Self::current
     pub fn last(&self) -> &T {
         &self.last
     }
 
+    /// Returns `true` if the state transitioned at the start of the current frame.
     pub fn just_changed(&self) -> bool {
         self.just_changed
     }
 }
 
+/// A [`Resource`] used to queue a state transition to a new value of `T`.
+///
+/// Queued transitions are applied at the start of the next frame, updating [`State<T>`].
+///
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`State<T>`]: crate::app::states::State
 pub struct NextState<T: States> {
     state: Option<T>,
 }
@@ -41,14 +65,19 @@ pub struct NextState<T: States> {
 impl<T: States> Resource for NextState<T> {}
 
 impl<T: States> NextState<T> {
+    /// Queues a transition to `next_state` to be applied at the start of the next frame.
+    ///
+    /// Overwrites any previously queued transition that has not been applied yet.
     pub fn set(&mut self, next_state: T) {
         self.state = Some(next_state);
     }
 
+    /// Cancels any pending state transition that has not been applied yet.
     pub fn clear(&mut self) {
         self.state = None;
     }
 
+    /// Returns a reference to the pending next state, or `None` if no transition is queued.
     pub fn current_next_state(&self) -> Option<&T> {
         self.state.as_ref()
     }
@@ -98,6 +127,10 @@ pub(crate) struct StateTransitionSystems {
     pub(crate) systems: Vec<SystemNode<(), ()>>,
 }
 
+/// A run [`Condition`] that returns `true` while [`State<T>`] matches `expected`.
+///
+/// [`Condition`]: crate::app::system::condition::Condition
+/// [`State<T>`]: crate::app::states::State
 pub fn in_state<T: States>(
     expected: T,
 ) -> impl Condition<ParallelResourceAccessor<State<T>>> + Clone {
@@ -106,6 +139,10 @@ pub fn in_state<T: States>(
     }
 }
 
+/// A run [`Condition`] that returns `true` on the frame [`State<T>`] transitions into `state`.
+///
+/// [`Condition`]: crate::app::system::condition::Condition
+/// [`State<T>`]: crate::app::states::State
 pub fn entered_state<T: States>(
     state: T,
 ) -> impl Condition<ParallelResourceAccessor<State<T>>> + Clone {
@@ -114,6 +151,10 @@ pub fn entered_state<T: States>(
     }
 }
 
+/// A run [`Condition`] that returns `true` on the frame [`State<T>`] transitions out of `state`.
+///
+/// [`Condition`]: crate::app::system::condition::Condition
+/// [`State<T>`]: crate::app::states::State
 pub fn exited_state<T: States>(
     state: T,
 ) -> impl Condition<ParallelResourceAccessor<State<T>>> + Clone {

@@ -8,7 +8,18 @@ use crate::{
     },
 };
 
-#[doc(hidden)]
+/// Scheduling and execution configuration for a single [`SystemSet`].
+///
+/// Created by calling configuration methods from [`SystemSetExt`] (such as [`after`], [`before`],
+/// [`in_set`], or [`run_if`]) on a [`SystemSet`], and passed to [`App::configure_sets`].
+///
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
+/// [`SystemSetExt`]: crate::app::system::system_set::SystemSetExt
+/// [`after`]: crate::app::system::system_set::SystemSetExt::after
+/// [`before`]: crate::app::system::system_set::SystemSetExt::before
+/// [`in_set`]: crate::app::system::system_set::SystemSetExt::in_set
+/// [`run_if`]: crate::app::system::system_set::SystemSetExt::run_if
+/// [`App::configure_sets`]: crate::app::App::configure_sets
 pub struct SetConfig {
     pub(crate) set: Box<dyn SystemSet>,
     pub(crate) run_after_sets: Vec<Box<dyn SystemSet>>,
@@ -59,12 +70,32 @@ impl IntoSystemSetConfig for Box<dyn SystemSet> {
     }
 }
 
-#[doc(hidden)]
+/// Extension trait providing scheduling and execution configuration methods for tuples or
+/// collections of [`SystemSet`]s.
+///
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
 pub trait SystemSetConfigsExt {
+    /// Schedules all sets in this collection to run after `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn after<T>(self, target: impl AsSchedulingTarget<T> + Clone) -> SystemSetConfigs;
+
+    /// Schedules all sets in this collection to run before `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn before<T>(self, target: impl AsSchedulingTarget<T> + Clone) -> SystemSetConfigs;
+
+    /// Assigns all sets in this collection as members of `parent`.
+    ///
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
     fn in_set(self, parent: impl SystemSet + Clone) -> SystemSetConfigs;
+
+    /// Orders the sets in this collection to run sequentially in the exact order they were listed.
     fn chain(self) -> SystemSetConfigs;
+
+    /// Appends a [`Condition`] that must evaluate to `true` for the sets in this collection to run.
+    ///
+    /// [`Condition`]: crate::app::system::condition::Condition
     fn run_if<P, Cond>(self, condition: Cond) -> SystemSetConfigs
     where
         P: ParallelSystemParam + 'static,
@@ -72,18 +103,18 @@ pub trait SystemSetConfigsExt {
 }
 
 #[doc(hidden)]
-pub trait TrackSetHierarchyEdges {
+pub trait CollectSetEdgeIds {
     #[doc(hidden)]
     fn collect_set_edge_ids(&self, sets: &mut Vec<Box<dyn SystemSet>>);
 }
 
-impl TrackSetHierarchyEdges for SetConfig {
+impl CollectSetEdgeIds for SetConfig {
     fn collect_set_edge_ids(&self, sets: &mut Vec<Box<dyn SystemSet>>) {
         sets.push(self.set.dyn_clone());
     }
 }
 
-impl TrackSetHierarchyEdges for SystemSetConfigs {
+impl CollectSetEdgeIds for SystemSetConfigs {
     fn collect_set_edge_ids(&self, sets: &mut Vec<Box<dyn SystemSet>>) {
         for config in &self.configs {
             sets.push(config.set.dyn_clone());
@@ -91,14 +122,20 @@ impl TrackSetHierarchyEdges for SystemSetConfigs {
     }
 }
 
-impl<T: SystemSet> TrackSetHierarchyEdges for T {
+impl<T: SystemSet> CollectSetEdgeIds for T {
     fn collect_set_edge_ids(&self, sets: &mut Vec<Box<dyn SystemSet>>) {
         sets.push(self.dyn_clone());
     }
 }
 
-#[doc(hidden)]
+/// Extension trait providing scheduling and execution configuration methods on an individual
+/// [`SystemSet`].
+///
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
 pub trait SystemSetExt: SystemSet + Sized {
+    /// Schedules this set to run after `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn after<T>(self, target: impl AsSchedulingTarget<T>) -> SetConfig {
         let mut config = SetConfig {
             set: Box::new(self),
@@ -118,6 +155,9 @@ pub trait SystemSetExt: SystemSet + Sized {
         config
     }
 
+    /// Schedules this set to run before `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn before<T>(self, target: impl AsSchedulingTarget<T>) -> SetConfig {
         let mut config = SetConfig {
             set: Box::new(self),
@@ -137,6 +177,9 @@ pub trait SystemSetExt: SystemSet + Sized {
         config
     }
 
+    /// Assigns this set as a member of `parent`.
+    ///
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
     fn in_set(self, parent: impl SystemSet) -> SetConfig {
         SetConfig {
             set: Box::new(self),
@@ -149,6 +192,9 @@ pub trait SystemSetExt: SystemSet + Sized {
         }
     }
 
+    /// Appends a [`Condition`] that must evaluate to `true` for the systems in this set to run.
+    ///
+    /// [`Condition`]: crate::app::system::condition::Condition
     fn run_if<P, C>(self, cond: C) -> SetConfig
     where
         P: 'static,
@@ -172,6 +218,9 @@ pub trait SystemSetExt: SystemSet + Sized {
 impl<T: SystemSet> SystemSetExt for T {}
 
 impl SetConfig {
+    /// Schedules this set to run after `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     pub fn after<T>(mut self, target: impl AsSchedulingTarget<T>) -> Self {
         let mut orderings = SystemOrderings::default();
         target.populate_after(&mut orderings);
@@ -182,6 +231,9 @@ impl SetConfig {
         self
     }
 
+    /// Schedules this set to run before `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     pub fn before<T>(mut self, target: impl AsSchedulingTarget<T>) -> Self {
         let mut orderings = SystemOrderings::default();
         target.populate_before(&mut orderings);
@@ -192,11 +244,17 @@ impl SetConfig {
         self
     }
 
+    /// Assigns this set as a member of `parent`.
+    ///
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
     pub fn in_set(mut self, parent: impl SystemSet) -> Self {
         self.member_of.push(Box::new(parent));
         self
     }
 
+    /// Appends a [`Condition`] that must evaluate to `true` for the systems in this set to run.
+    ///
+    /// [`Condition`]: crate::app::system::condition::Condition
     pub fn run_if<P, C>(mut self, cond: C) -> Self
     where
         P: 'static,
@@ -208,9 +266,15 @@ impl SetConfig {
     }
 }
 
-#[doc(hidden)]
+/// Conversion trait for turning a [`SystemSet`], [`SetConfig`], or tuple of sets into a list of
+/// [`SetConfig`] entries.
+///
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
+/// [`SetConfig`]: crate::app::system::system_set::SetConfig
 pub trait IntoSystemSetConfigs {
-    #[doc(hidden)]
+    /// Converts `self` into a vector of [`SetConfig`] entries.
+    ///
+    /// [`SetConfig`]: crate::app::system::system_set::SetConfig
     fn into_configs(self) -> Vec<SetConfig>;
 }
 
@@ -238,6 +302,12 @@ impl<T: SystemSet> IntoSystemSetConfigs for T {
     }
 }
 
+/// A collection of [`SetConfig`] entries produced when configuring a tuple of [`SystemSet`]s via
+/// [`SystemSetConfigsExt`].
+///
+/// [`SetConfig`]: crate::app::system::system_set::SetConfig
+/// [`SystemSet`]: crate::app::system::system_set::SystemSet
+/// [`SystemSetConfigsExt`]: crate::app::system::system_set::SystemSetConfigsExt
 pub struct SystemSetConfigs {
     pub(crate) configs: Vec<SetConfig>,
 }
@@ -320,7 +390,7 @@ macro_rules! impl_system_set_configs_for_tuples {
             }
         }
 
-        impl<$($set: IntoSystemSetConfigs + TrackSetHierarchyEdges + 'static),*> SystemSetConfigsExt for ($($set,)*) {
+        impl<$($set: IntoSystemSetConfigs + CollectSetEdgeIds + 'static),*> SystemSetConfigsExt for ($($set,)*) {
             fn after<T>(self, target: impl AsSchedulingTarget<T> + Clone) -> SystemSetConfigs {
                 SystemSetConfigs { configs: self.into_configs() }.after(target)
             }
@@ -388,7 +458,7 @@ impl_system_set_configs_for_tuples!(S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10)
 
 macro_rules! impl_track_set_edges_for_tuples {
     ($($set:ident),*) => {
-        impl<$($set: TrackSetHierarchyEdges),*> TrackSetHierarchyEdges for ($($set,)*) {
+        impl<$($set: CollectSetEdgeIds),*> CollectSetEdgeIds for ($($set,)*) {
             fn collect_set_edge_ids(&self, sets: &mut Vec<Box<dyn SystemSet>>) {
                 #[allow(non_snake_case)]
                 let ($($set,)*) = self;

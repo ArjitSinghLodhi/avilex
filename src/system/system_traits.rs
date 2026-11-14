@@ -47,7 +47,7 @@ impl<T: SystemSet + Clone> AsSchedulingTarget<()> for T {
 pub struct FunctionTargetMarker<P, F>(std::marker::PhantomData<(P, F)>);
 
 #[doc(hidden)]
-pub trait TrackHierarchyEdges<MarkerGroup> {
+pub trait CollectSystemEdgeIds<MarkerGroup> {
     #[doc(hidden)]
     fn collect_edge_ids(&self, ids: &mut Vec<Box<dyn SystemIdentity>>);
 }
@@ -169,7 +169,7 @@ macro_rules! impl_system_for_functions {
             }
         }
 
-        impl<$($param,)* F> TrackHierarchyEdges<($($param,)*)> for F
+        impl<$($param,)* F> CollectSystemEdgeIds<($($param,)*)> for F
         where
             $( $param: SystemParam + 'static, )*
             F: Fn($($param),*) + 'static,
@@ -229,7 +229,7 @@ where
     }
 }
 
-impl<F: Send + Sync> TrackHierarchyEdges<()> for F
+impl<F: Send + Sync> CollectSystemEdgeIds<()> for F
 where
     F: Fn() + 'static,
 {
@@ -304,7 +304,7 @@ where
 {
     fn run_if<P>(mut self, condition: impl Condition<P> + Clone) -> SystemConfigs<Marker> {
         self.get_or_init_mut::<RunConditionsList>(RunConditionsList::default)
-            .add_condition(condition);
+            .push_condition(condition);
         SystemConfigs::new(vec![Box::new(self)])
     }
 
@@ -330,7 +330,7 @@ where
     }
 }
 
-impl<Marker, F: Send + Sync, I: SystemInput, O> TrackHierarchyEdges<Marker>
+impl<Marker, F: Send + Sync, I: SystemInput, O> CollectSystemEdgeIds<Marker>
     for FunctionSystem<Marker, I, O, F>
 where
     Self: System,

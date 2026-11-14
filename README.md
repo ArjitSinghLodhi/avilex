@@ -17,7 +17,7 @@ Avilex provides a complete application pipeline out of the box, combining dense 
 * **Multi-Threading**  
   Integrates a native Rayon worker pool to automatically chunk, partition, and process archetype arrays concurrently across all available CPU cores.
 * **Parallel System Execution**
-  Runs systems in parallel natively using Rayon, allowing independent systems to execute simultaneously across multiple threads without manual thread management. It also natively handles thread-unsafe NonSend systems, automatically routing them to the main thread to ensure safe execution alongside parallel tasks.
+  Runs systems in parallel natively using Rayon, allowing independent systems to execute simultaneously across multiple threads without manual thread management. It also natively handles thread-unsafe `NonSendRes` systems, automatically routing them to the main thread to ensure safe execution alongside parallel tasks.
 * **SystemSets Execution**  
   Groups systems into functional blocks that share operational bounds. Attaching a run condition to a SystemSet evaluates that condition **exactly once** for the entire group, removing the overhead of individual system evaluations.
 * **Integrated States Pipeline**  

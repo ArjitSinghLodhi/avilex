@@ -5,21 +5,47 @@ use crate::system::condition::{Condition, RunConditionsList};
 use crate::system::system_set::SystemSet;
 use crate::system::system_storage::SystemExt;
 use crate::system::system_traits::AsSchedulingTarget;
+use crate::system::system_traits::CollectSystemEdgeIds;
 use crate::system::system_traits::SystemOrderings;
-use crate::system::system_traits::TrackHierarchyEdges;
 use std::marker::PhantomData;
 
-#[doc(hidden)]
+/// Extension trait providing scheduling and execution configuration methods for systems and
+/// system tuples.
 pub trait ConfigureSystemConfigs<MarkerGroup> {
+    /// Appends a [`Condition`] that must evaluate to `true` for the systems in this configuration
+    /// to run.
+    ///
+    /// [`Condition`]: crate::app::system::condition::Condition
     fn run_if<P>(self, condition: impl Condition<P> + Clone) -> SystemConfigs<MarkerGroup>;
+
+    /// Assigns the systems in this configuration to the given [`SystemSet`].
+    ///
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
     fn in_set(self, set: impl SystemSet + Clone) -> SystemConfigs<MarkerGroup>;
+
+    /// Schedules the systems in this configuration to run before `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn before<T>(self, target: impl AsSchedulingTarget<T> + Clone) -> SystemConfigs<MarkerGroup>;
+
+    /// Schedules the systems in this configuration to run after `target`.
+    ///
+    /// [`AsSchedulingTarget`]: crate::app::system::system_traits::AsSchedulingTarget
     fn after<T>(self, target: impl AsSchedulingTarget<T> + Clone) -> SystemConfigs<MarkerGroup>;
+
+    /// Orders the systems in this configuration to run sequentially in the exact order they were
+    /// listed.
     fn chain(self) -> SystemConfigs<MarkerGroup>;
 }
 
-#[doc(hidden)]
+/// Conversion trait for turning a system, system tuple, or existing [`SystemConfigs`] into a
+/// [`SystemConfigs`] collection.
+///
+/// [`SystemConfigs`]: crate::app::system::system_configs_traits::SystemConfigs
 pub trait IntoSystemConfigs<MarkerGroup> {
+    /// Converts `self` into a [`SystemConfigs`] collection.
+    ///
+    /// [`SystemConfigs`]: crate::app::system::system_configs_traits::SystemConfigs
     fn into_configs(self) -> SystemConfigs<MarkerGroup>;
 }
 
@@ -29,13 +55,26 @@ impl IntoSystemConfigs<()> for SystemConfigs<()> {
     }
 }
 
-#[doc(hidden)]
+/// A configured collection of [`System`] instances along with their scheduling constraints,
+/// set memberships, and run conditions.
+///
+/// Created automatically when calling methods from [`ConfigureSystemConfigs`] (such as
+/// [`run_if`], [`in_set`], [`before`], [`after`], or [`chain`]) or via [`IntoSystemConfigs`].
+///
+/// [`System`]: crate::app::system::System
+/// [`ConfigureSystemConfigs`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs
+/// [`run_if`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::run_if
+/// [`in_set`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::in_set
+/// [`before`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::before
+/// [`after`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::after
+/// [`chain`]: crate::app::system::system_configs_traits::ConfigureSystemConfigs::chain
+/// [`IntoSystemConfigs`]: crate::app::system::system_configs_traits::IntoSystemConfigs
 pub struct SystemConfigs<Marker> {
     pub(crate) systems: Vec<Box<dyn System<In = (), Out = ()>>>,
     pub(crate) _marker: PhantomData<Marker>,
 }
 
-impl<Marker> TrackHierarchyEdges<Marker> for SystemConfigs<Marker> {
+impl<Marker> CollectSystemEdgeIds<Marker> for SystemConfigs<Marker> {
     fn collect_edge_ids(&self, ids: &mut Vec<Box<dyn SystemIdentity>>) {
         for sys in &self.systems {
             ids.push(sys.identity().dyn_clone());
@@ -44,6 +83,10 @@ impl<Marker> TrackHierarchyEdges<Marker> for SystemConfigs<Marker> {
 }
 
 impl<Marker> SystemConfigs<Marker> {
+    /// Creates a new [`SystemConfigs`] container from a vector of boxed [`System`]s.
+    ///
+    /// [`SystemConfigs`]: Self
+    /// [`System`]: crate::app::system::System
     pub fn new(systems: Vec<Box<dyn System<In = (), Out = ()>>>) -> Self {
         Self {
             systems,
@@ -70,9 +113,9 @@ macro_rules! impl_system_configs_for_tuples {
             }
         }
 
-        impl<$($sys,)* $($marker,)*> TrackHierarchyEdges<($($marker,)*)> for ($($sys,)*)
+        impl<$($sys,)* $($marker,)*> CollectSystemEdgeIds<($($marker,)*)> for ($($sys,)*)
         where
-            $( $sys: TrackHierarchyEdges<$marker> ),*
+            $( $sys: CollectSystemEdgeIds<$marker> ),*
         {
             fn collect_edge_ids(&self, ids: &mut Vec<Box<dyn SystemIdentity>>) {
                 #[allow(non_snake_case)]
@@ -83,7 +126,7 @@ macro_rules! impl_system_configs_for_tuples {
 
         impl<$($sys,)* $($marker: 'static,)*> ConfigureSystemConfigs<($($marker,)*)> for ($($sys,)*)
         where
-            $( $sys: IntoSystemConfigs<$marker> + TrackHierarchyEdges<$marker> + 'static ),*
+            $( $sys: IntoSystemConfigs<$marker> + CollectSystemEdgeIds<$marker> + 'static ),*
         {
             fn run_if<P>(self, condition: impl Condition<P> + Clone) -> SystemConfigs<($($marker,)*)> {
                 self.into_configs().run_if(condition)
@@ -194,7 +237,7 @@ impl<Marker> ConfigureSystemConfigs<Marker> for SystemConfigs<Marker> {
     fn run_if<P>(mut self, condition: impl Condition<P> + Clone) -> SystemConfigs<Marker> {
         self.systems.iter_mut().for_each(|sys| {
             sys.get_or_init_mut::<RunConditionsList>(RunConditionsList::default)
-                .add_condition(condition.clone());
+                .push_condition(condition.clone());
         });
         self
     }

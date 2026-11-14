@@ -4,23 +4,39 @@ use crate::{
     world::World,
 };
 
+/// A boxed, thread-safe run condition closure evaluated against a [`World`].
+///
+/// [`World`]: crate::ecs::world::World
 pub type ConditionFn = Box<dyn Fn(&World) -> bool + Send + Sync>;
 
+/// An ordered collection of [`ConditionFn`] predicates evaluated before a system or system set runs.
+///
+/// [`ConditionFn`]: crate::app::system::condition::ConditionFn
 #[derive(Default)]
 pub struct RunConditionsList {
     runtime_gates: Vec<ConditionFn>,
 }
 
 impl RunConditionsList {
+    /// Returns a slice of all registered [`ConditionFn`] predicates.
+    ///
+    /// [`ConditionFn`]: crate::app::system::condition::ConditionFn
     pub fn conditions(&self) -> &Vec<ConditionFn> {
         &self.runtime_gates
     }
 
+    /// Inserts a [`ConditionFn`] predicate at `index`.
+    ///
+    /// # Panics
+    /// Panics if `index > self.conditions().len()`.
+    ///
+    /// [`ConditionFn`]: crate::app::system::condition::ConditionFn
     pub fn insert(&mut self, index: usize, condition: ConditionFn) {
         self.runtime_gates.insert(index, condition);
     }
 
-    pub fn add_condition<C, T>(&mut self, cond: C)
+    /// Initializes parameter access metadata for `cond` and appends it to the list.
+    pub fn push_condition<C, T>(&mut self, cond: C)
     where
         C: Condition<T> + Send + Sync + 'static,
     {
@@ -38,7 +54,10 @@ impl RunConditionsList {
 /// no order-of-execution or isolation guarantees for conditions, they should rely strictly
 /// on thread-safe, non-blocking parallel parameter lookups.
 pub trait Condition<T>: Send + Sync + 'static {
+    /// Registers any parameter access metadata required before evaluating this condition.
     fn init_condition_access();
+
+    /// Evaluates the condition against `world`, returning `true` if execution should proceed.
     fn run(&self, world: &World) -> bool;
 }
 
@@ -62,6 +81,9 @@ where
     }
 }
 
+/// Wraps a [`Condition`] and returns a new condition that evaluates to its logical negation.
+///
+/// [`Condition`]: crate::app::system::condition::Condition
 pub fn not<P, C>(condition: C) -> impl Fn(&World) -> bool + Clone + Send + Sync
 where
     P: 'static,
@@ -70,6 +92,12 @@ where
     move |world: &World| !condition.run(world)
 }
 
+/// A run [`Condition`] that returns `true` when a thread-safe [`Resource`] of type `R` exists in
+/// the [`World`].
+///
+/// [`Condition`]: crate::app::system::condition::Condition
+/// [`Resource`]: crate::ecs::resources::Resource
+/// [`World`]: crate::ecs::world::World
 pub fn resource_exists<R>() -> impl Fn(&World) -> bool + Clone + Send + Sync
 where
     R: Resource + Send + Sync,

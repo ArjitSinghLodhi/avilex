@@ -6,6 +6,7 @@ use rustc_hash::FxBuildHasher;
 use std::any::TypeId;
 use std::marker::PhantomData;
 
+use crate::component::bundle::ComponentBundle;
 use crate::entity::ENTITY_HANDLE_COUNT_REGISTRY;
 use crate::entity::ENTITY_LOCATION_REGISTRY;
 use crate::entity::EntityLocationData;
@@ -14,7 +15,7 @@ use crate::reactivity::TrackedComponentMeta;
 use crate::reactivity::{TRACKED_COMPONENTS, removed::REMOVAL_TRACKED_COMPS};
 use crate::world::archetypes::ArchetypeLock;
 use crate::{
-    commands::{Command, bundle::ComponentBundle},
+    commands::Command,
     component::hooks::ExclusiveWorld,
     entity::Entity,
     world::{
@@ -35,7 +36,7 @@ impl<T: ComponentBundle> Command for SpawnCommandCore<T> {
             Some(arch) => arch.entities.read().len() as u32,
             None => 0,
         };
-        let assigned_registry_idx = alloc_registry_cell(arch_id, next_idx, world);
+        let assigned_registry_idx = alloc_entity_location_data(arch_id, next_idx, world);
         let mut arch = world
             .archetypes_manager
             .get_mut(arch_id)
@@ -143,7 +144,7 @@ impl<T: ComponentBundle, I: Iterator<Item = T> + Send + 'static> Command
                 let mut arch_entities = arch.entities.write();
                 let next_idx = arch_entities.len() as u32;
                 let assigned_registry_idx =
-                    unsafe { alloc_registry_cell(arch_id, next_idx, &mut *world_ptr) };
+                    unsafe { alloc_entity_location_data(arch_id, next_idx, &mut *world_ptr) };
                 let entity = Entity::new(assigned_registry_idx);
                 arch_entities.push(entity.clone());
                 entity
@@ -455,7 +456,7 @@ impl<T: ComponentBundle> Command for InsertComponentsCommand<T> {
             swap_remove_entity_registry_update(&mut old_arch_entities, old_idx);
             let entity_handle = old_arch_entities.swap_remove(old_idx as usize);
             new_arch.entities.write().push(entity_handle);
-            update_registry_cell(target_registry_idx, new_arch_id, new_dense_idx);
+            update_entity_location_data(target_registry_idx, new_arch_id, new_dense_idx);
         }
 
         for (i, &id) in incoming_ids.iter().enumerate() {
@@ -562,7 +563,7 @@ impl<T: ComponentBundle> Command for RemoveComponentsCommand<T> {
             let entity_handle = old_arch_entities.swap_remove(old_idx as usize);
             new_arch_entities.push(entity_handle);
 
-            update_registry_cell(target_registry_idx, new_arch_id, new_dense_idx);
+            update_entity_location_data(target_registry_idx, new_arch_id, new_dense_idx);
         }
     }
 }
@@ -579,7 +580,7 @@ fn get_registry_location(registry_idx: usize) -> (ArchetypeId, u32) {
 }
 
 #[inline(always)]
-fn update_registry_cell(registry_idx: usize, archetype_id: ArchetypeId, dense_idx: u32) {
+fn update_entity_location_data(registry_idx: usize, archetype_id: ArchetypeId, dense_idx: u32) {
     unsafe {
         let mut lock = ENTITY_LOCATION_REGISTRY.write();
         let entity_location_data_ptr = lock.as_mut_ptr().add(registry_idx);
@@ -589,7 +590,7 @@ fn update_registry_cell(registry_idx: usize, archetype_id: ArchetypeId, dense_id
 }
 
 #[inline(always)]
-fn alloc_registry_cell(archetype_id: ArchetypeId, dense_idx: u32, world: &mut World) -> u32 {
+fn alloc_entity_location_data(archetype_id: ArchetypeId, dense_idx: u32, world: &mut World) -> u32 {
     let mut lock = ENTITY_LOCATION_REGISTRY.write();
     if let Some(recycled_idx) = world.free_indices_list.pop() {
         unsafe {
@@ -763,9 +764,9 @@ unsafe fn swap_remove_entity_registry_update(
     if removed_row_idx != last_idx {
         let swapped_entity_registry_idx =
             arch_entities[last_idx as usize].registry_index() as usize;
-        let swapped_cell = unsafe { lock.as_mut_ptr().add(swapped_entity_registry_idx) };
+        let swapped_location_data = unsafe { lock.as_mut_ptr().add(swapped_entity_registry_idx) };
         unsafe {
-            (*swapped_cell).set_index(removed_row_idx);
+            (*swapped_location_data).set_index(removed_row_idx);
         }
     }
 }

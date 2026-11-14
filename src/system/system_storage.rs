@@ -14,12 +14,30 @@ pub trait SystemData {
     fn remove_raw(&mut self, id: TypeId) -> Option<Box<dyn Any + Send + Sync + 'static>>;
 }
 
+/// Extension methods for storing and retrieving typed, per-system local state on any [`System`].
+///
+/// [`System`]: crate::app::system::System
 pub trait SystemExt {
+    /// Returns a shared reference to the stored value of type `T`, or `None` if it has not been
+    /// inserted.
     fn get_data<T: 'static + Send + Sync>(&self) -> Option<&T>;
+
+    /// Returns a mutable reference to the stored value of type `T`, or `None` if it has not been
+    /// inserted.
     fn get_data_mut<T: 'static + Send + Sync>(&mut self) -> Option<&mut T>;
+
+    /// Stores a value of type `T` on the system, overwriting any existing value of the same type.
     fn insert<T: 'static + Send + Sync>(&mut self, value: T);
+
+    /// Returns a shared reference to the stored value of type `T`, initializing it with `init` if
+    /// not already present.
     fn get_or_init<T: 'static + Send + Sync>(&mut self, init: impl FnOnce() -> T) -> &T;
+
+    /// Returns a mutable reference to the stored value of type `T`, initializing it with `init` if
+    /// not already present.
     fn get_or_init_mut<T: 'static + Send + Sync>(&mut self, init: impl FnOnce() -> T) -> &mut T;
+
+    /// Removes and returns the stored value of type `T` from the system, if present.
     fn remove<T: 'static + Send + Sync>(&mut self) -> Option<T>;
 }
 

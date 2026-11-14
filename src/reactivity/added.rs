@@ -50,6 +50,13 @@ pub(crate) fn register_added_tracked_component<T: Component>() {
     });
 }
 
+/// Double-buffered addition detection state (`read` and `write` flags) for component `T`.
+///
+/// - `read` holds the visible addition state for the current frame.
+/// - `write` holds the staged addition state that will be swapped into `read` (and reset to
+///   `false`) at the next frame boundary.
+///
+/// [`Component`]: crate::ecs::component::Component
 #[derive(Component, Clone, Copy, Debug)]
 pub struct AddedState<T: Component> {
     read: bool,
@@ -58,6 +65,9 @@ pub struct AddedState<T: Component> {
 }
 
 impl<T: Component> AddedState<T> {
+    /// Creates a new [`AddedState`] with the given `read` and `write` flags.
+    ///
+    /// [`AddedState`]: Self
     pub const fn new(read: bool, write: bool) -> Self {
         Self {
             read,
@@ -66,18 +76,22 @@ impl<T: Component> AddedState<T> {
         }
     }
 
+    /// Returns the `read` flag currently visible this frame.
     pub const fn read(&self) -> bool {
         self.read
     }
 
+    /// Sets the `read` flag currently visible this frame.
     pub fn set_read(&mut self, read: bool) {
         self.read = read;
     }
 
+    /// Returns the `write` flag staged to swap into `read` on the next frame.
     pub const fn write(&self) -> bool {
         self.write
     }
 
+    /// Sets the `write` flag staged to swap into `read` on the next frame.
     pub fn set_write(&mut self, write: bool) {
         self.write = write;
     }
@@ -149,6 +163,7 @@ pub struct AddedTracker<T: Component> {
 }
 
 impl<T: Component> AddedTracker<T> {
+    /// Returns `true` if component `T` was newly added during the previous frame.
     #[inline(always)]
     pub fn is_added(&self) -> bool {
         self.added
@@ -169,7 +184,7 @@ impl<T: Component> QueryData for AddedTracker<T> {
     fn matches(archetype: &Archetype) -> bool {
         archetype.contains_column::<T>()
     }
-    unsafe fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
         archetype.column::<AddedState<T>>()
     }
 
