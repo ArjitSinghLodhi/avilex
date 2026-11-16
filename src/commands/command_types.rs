@@ -36,7 +36,8 @@ impl<T: ComponentBundle> Command for SpawnCommandCore<T> {
             Some(arch) => arch.entities.read().len() as u32,
             None => 0,
         };
-        let assigned_registry_idx = alloc_entity_location_data(arch_id, next_idx, world);
+        let assigned_registry_idx =
+            alloc_entity_location_data(arch_id, next_idx, &mut world.free_indices_list);
         let mut arch = world
             .archetypes_manager
             .get_mut(arch_id)
@@ -115,19 +116,12 @@ impl<T: ComponentBundle, I: Iterator<Item = T> + Send + 'static> Command
 {
     type Out = Vec<Entity>;
     fn apply(self, world: &mut World) -> Self::Out {
-        let world_ptr = world as *mut World;
-        let arch_id = unsafe {
-            (*world_ptr)
-                .archetypes_manager
-                .get_or_create_from_generic::<T>()
-        };
+        let arch_id = world.archetypes_manager.get_or_create_from_generic::<T>();
 
-        let mut arch = unsafe {
-            (*world_ptr)
-                .archetypes_manager
-                .get_mut(arch_id)
-                .expect("Archetype generation failed")
-        };
+        let mut arch = world
+            .archetypes_manager
+            .get_mut(arch_id)
+            .expect("Archetype generation failed");
 
         let (lower_bound, _) = self.components_iter.size_hint();
         if lower_bound > 0 {
@@ -144,7 +138,7 @@ impl<T: ComponentBundle, I: Iterator<Item = T> + Send + 'static> Command
                 let mut arch_entities = arch.entities.write();
                 let next_idx = arch_entities.len() as u32;
                 let assigned_registry_idx =
-                    unsafe { alloc_entity_location_data(arch_id, next_idx, &mut *world_ptr) };
+                    alloc_entity_location_data(arch_id, next_idx, &mut world.free_indices_list);
                 let entity = Entity::new(assigned_registry_idx);
                 arch_entities.push(entity.clone());
                 entity
@@ -157,6 +151,7 @@ impl<T: ComponentBundle, I: Iterator<Item = T> + Send + 'static> Command
         }
 
         drop(arch);
+        drop(tracked_components_guard);
 
         let type_ids = T::get_type_ids();
 
@@ -590,9 +585,13 @@ fn update_entity_location_data(registry_idx: usize, archetype_id: ArchetypeId, d
 }
 
 #[inline(always)]
-fn alloc_entity_location_data(archetype_id: ArchetypeId, dense_idx: u32, world: &mut World) -> u32 {
+fn alloc_entity_location_data(
+    archetype_id: ArchetypeId,
+    dense_idx: u32,
+    free_indices_list: &mut Vec<u32>,
+) -> u32 {
     let mut lock = ENTITY_LOCATION_REGISTRY.write();
-    if let Some(recycled_idx) = world.free_indices_list.pop() {
+    if let Some(recycled_idx) = free_indices_list.pop() {
         unsafe {
             let data_ptr = lock.as_mut_ptr().add(recycled_idx as usize);
             (*data_ptr).set_archetype_id(archetype_id);

@@ -21,7 +21,7 @@ pub struct ExclusiveWorld<'w> {
 impl<'w> ExclusiveWorld<'w> {
     /// Creates a new [`ExclusiveWorld`] from a mutable [`World`] reference.
     ///
-    /// [`ExclusiveWorld`]: crate::ecs::component::exclusive_world::ExclusiveWorld
+    /// [`ExclusiveWorld`]: crate::ecs::component::hooks::exclusive_world::ExclusiveWorld
     pub fn new(world: &'w mut World) -> Self {
         Self { world }
     }
