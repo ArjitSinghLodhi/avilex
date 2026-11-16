@@ -77,7 +77,7 @@ pub mod prelude {
         commands::{Command, Commands, EntityCommands, ParallelCommands},
         component::{
             Component, ComponentBundle, ComponentMut, ComponentRef,
-            hooks::{ComponentHook, ComponentHooksRegisterer, ExclusiveWorld},
+            hooks::{ComponentHook, ComponentHooksRegisterer, exclusive_world::ExclusiveWorld},
         },
         entity::{Entity, EntityMut, EntityRef},
         events::{Event, EventReader, EventWriter, ParallelEventReader, ParallelEventWriter},
@@ -106,14 +106,18 @@ pub mod ecs {
             Component, ComponentMut, ComponentRef, bundle::ComponentBundle,
         };
 
-        /// Lifecycle hook callbacks (`on_add`, `on_insert`, `on_discard`, `on_remove`) and
-        /// [`ExclusiveWorld`] context.
+        /// Lifecycle hook callbacks (`on_add`, `on_insert`, `on_discard`, `on_remove`)
+        /// [`ComponentHook`] function type and registerer.
         ///
-        /// [`ExclusiveWorld`]: crate::ecs::component::hooks::ExclusiveWorld
+        /// [`ComponentHook`]: crate::component::hooks::ComponentHook
         pub mod hooks {
-            pub use crate::component::hooks::{
-                ComponentHook, ComponentHooksRegisterer, ExclusiveWorld,
-            };
+            pub use crate::component::hooks::{ComponentHook, ComponentHooksRegisterer};
+            /// [`ExclusiveWorld`] context for hooks.
+            ///
+            /// [`ExclusiveWorld`]: crate::component::exclusive_world::ExclusiveWorld
+            pub mod exclusive_world {
+                pub use crate::component::exclusive_world::ExclusiveWorld;
+            }
         }
     }
 
@@ -279,7 +283,7 @@ pub mod app {
             };
         }
 
-        /// Internal and marker traits for resolving system scheduling targets.
+        /// Internal traits for resolving system scheduling targets.
         pub mod system_traits {
             pub use crate::system::system_traits::{
                 AsSchedulingTarget, CollectSystemEdgeIds, FunctionTargetMarker,

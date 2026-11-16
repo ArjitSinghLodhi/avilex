@@ -1,9 +1,11 @@
 use std::any::Any;
-#[doc(hidden)]
+
+/// Object-safe equality comparison for trait objects via [`Any`] downcasting.
 pub trait DynEq: Any {
-    #[doc(hidden)]
+    /// Returns the underlying value as `&dyn Any`.
     fn as_any(&self) -> &dyn Any;
-    #[doc(hidden)]
+
+    /// Returns `true` if `self` and `other` share the same concrete type and are equal.
     fn dyn_eq(&self, other: &dyn DynEq) -> bool;
 }
 

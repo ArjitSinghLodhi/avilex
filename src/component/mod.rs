@@ -1,4 +1,5 @@
 pub(crate) mod bundle;
+pub(crate) mod exclusive_world;
 pub(crate) mod hooks;
 
 use std::ops::{Deref, DerefMut};

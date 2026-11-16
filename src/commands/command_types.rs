@@ -16,7 +16,7 @@ use crate::reactivity::{TRACKED_COMPONENTS, removed::REMOVAL_TRACKED_COMPS};
 use crate::world::archetypes::ArchetypeLock;
 use crate::{
     commands::Command,
-    component::hooks::ExclusiveWorld,
+    component::exclusive_world::ExclusiveWorld,
     entity::Entity,
     world::{
         World,

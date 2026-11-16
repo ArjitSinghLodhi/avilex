@@ -120,7 +120,7 @@ type RunnerFn = Box<dyn FnOnce(&mut App) + 'static>;
 
 /// The primary entry point and builder for configuring and executing an Avilex ECS application.
 ///
-/// `App` owns the underlying [`World`], manages registered [`Plugin`]s, organizes [`System`]s
+/// [`App`] owns the underlying [`World`], manages registered [`Plugin`]s, organizes [`System`]s
 /// into labeled [`Schedule`]s and [`SystemSet`]s, and executes the application lifecycle via its
 /// configured runner.
 ///
@@ -137,7 +137,7 @@ type RunnerFn = Box<dyn FnOnce(&mut App) + 'static>;
 ///    [`App::run_startup`] after [`App::build`] before calling [`App::update`], as
 ///    [`App::update`] does not run startup systems.
 /// 5. **Execution (`update` / `run`):** Calling [`App::update`] runs all frame schedules once in
-///    their resolved topological order and flushes double-buffered reactivity/event queues.
+///    their resolved topological order and flushes double-buffered event queues and clear reactivity trackers.
 ///    Calling [`App::run`] delegates to the configured runner (which by default runs a single
 ///    cycle of `build` -> `run_startup` -> `update`, unless customized via [`App::set_runner`]).
 ///
@@ -191,7 +191,7 @@ impl App {
     /// # Panics
     /// Panics if an [`App`] instance has already been created in the current process.
     ///
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`DefaultSchedulesPlugin`]: crate::app::schedule::DefaultSchedulesPlugin
     /// [`Startup`]: crate::app::schedule::Startup
     pub fn new() -> Self {
@@ -205,7 +205,7 @@ impl App {
     /// # Panics
     /// Panics if an [`App`] instance has already been created in the current process.
     ///
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`Startup`]: crate::app::schedule::Startup
     pub fn empty() -> Self {
         if APP_INITIALIZED.swap(true, Ordering::SeqCst) {
@@ -231,7 +231,7 @@ impl App {
     /// Returns `true` if a frame [`Schedule`] with the given `label` has been added to this [`App`].
     ///
     /// [`Schedule`]: crate::app::schedule::Schedule
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     pub fn contains_schedule(&self, label: &impl ScheduleLabel) -> bool {
         self.schedules
             .iter()
@@ -239,13 +239,12 @@ impl App {
     }
 
     /// Initializes a [`States`] machine of type `T` using `T::default()` and registers its
-    /// [`State<T>`] and [`NextState<T>`] resources along with transition schedules and systems.
+    /// [`State<T>`] and [`NextState<T>`] resources along with transition systems.
     ///
     /// [`States`]: crate::app::states::States
     /// [`State<T>`]: crate::app::states::State
     /// [`NextState<T>`]: crate::app::states::NextState
     pub fn init_state<T: States + Default>(&mut self) -> &mut Self {
-        self.configuration().not_ready();
         self.insert_state(T::default())
     }
 
@@ -267,7 +266,7 @@ impl App {
     /// Panics if `schedule` uses the [`Startup`] label, which cannot be overwritten.
     ///
     /// [`Schedule`]: crate::app::schedule::Schedule
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`Startup`]: crate::app::schedule::Startup
     pub fn add_schedule(&mut self, schedule: Schedule) -> &mut Self {
         self.configuration().not_ready();
@@ -280,8 +279,7 @@ impl App {
         self
     }
 
-    /// Applies [`SetConfig`] or [`SystemSetConfigs`] ordering, nesting, and run-condition rules to
-    /// sets within `schedule`.
+    /// Configures sets within `schedule`.
     ///
     /// [`SetConfig`]: crate::app::system::system_set::SetConfig
     /// [`SystemSetConfigs`]: crate::app::system::system_set::SystemSetConfigs
@@ -354,25 +352,27 @@ impl App {
     /// Adds one or more plugins (or a [`PluginGroup`]) and immediately builds them on this [`App`].
     ///
     /// [`PluginGroup`]: crate::app::plugin::PluginGroup
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     pub fn add_plugins(&mut self, plugins: impl PluginGroup) -> &mut Self {
         self.configuration().not_ready();
+        self.configuration().building_plugins = true;
         plugins.build().finish(self);
+        self.configuration().building_plugins = false;
         self
     }
 
     /// Returns `true` if a unique [`Plugin`] of type `T` has already been built on this [`App`].
     ///
     /// [`Plugin`]: crate::app::plugin::Plugin
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     pub fn is_plugin_built<T: Plugin>(&self) -> bool {
         self.registered_plugins.contains(&TypeId::of::<T>())
     }
 
-    /// Returns `true` if the [`App`] is currently inside a [`Plugin::build`] invocation.
+    /// Returns `true` if the [`App`] is currently building plugins through [`App::add_plugins`].
     ///
-    /// [`App`]: Self
-    /// [`Plugin::build`]: crate::app::plugin::Plugin::build
+    /// [`App`]: App
+    /// [`App::add_plugins`]: crate::app::App::add_plugins
     pub fn is_building_plugins(&self) -> bool {
         self.configuration_ref().is_building_plugins()
     }
@@ -400,7 +400,7 @@ impl App {
     /// [`Event`]: crate::ecs::events::Event
     /// [`EventWriter<T>`]: crate::ecs::events::EventWriter
     /// [`EventReader<T>`]: crate::ecs::events::EventReader
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     pub fn init_event<T: Event>(&mut self) -> &mut Self {
         self.configuration().not_ready();
         if self.world.contains_resource::<EventBuffer<T>>() {
@@ -422,7 +422,7 @@ impl App {
     /// Panics if called from inside [`Plugin::build`] or if [`App::build`] has already been
     /// called.
     ///
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
     /// [`App::build`]: Self::build
     pub fn build(&mut self) -> &mut Self {
@@ -452,7 +452,7 @@ impl App {
     /// [`Startup`]: crate::app::schedule::Startup
     /// [`App::build`]: Self::build
     /// [`App::update`]: Self::update
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
     /// [`App::run_startup`]: Self::run_startup
     pub fn run_startup(&mut self) -> &mut Self {
@@ -482,7 +482,7 @@ impl App {
     /// Panics if called from inside [`Plugin::build`], before [`App::build`], or before
     /// [`App::run_startup`].
     ///
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`Schedule`]: crate::app::schedule::Schedule
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
     /// [`App::build`]: Self::build
@@ -513,7 +513,7 @@ impl App {
     /// # Panics
     /// Panics if called from inside [`Plugin::build`].
     ///
-    /// [`App`]: Self
+    /// [`App`]: crate::app::App
     /// [`App::build`]: Self::build
     /// [`App::run_startup`]: Self::run_startup
     /// [`App::update`]: Self::update
