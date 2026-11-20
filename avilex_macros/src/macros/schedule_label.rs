@@ -8,11 +8,14 @@ pub fn derive_schedule_label_impl(input: TokenStream) -> TokenStream {
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let args = ScheduleLabelAttribute::parse(&input.attrs);
+    let args = match ScheduleLabelAttribute::parse_from_attributes(&input.attrs) {
+        Ok(args) => args,
+        Err(err) => return err.to_compile_error().into(),
+    };
 
     let executor_instantiation = match args.default_executor {
         Some(executor_expr) => quote! {
-            Box::new((#executor_expr)(self))
+            (#executor_expr)(self).into()
         },
         None => quote! {
             Box::new(avilex::app::schedule::MultiThreadedExecutor::new())

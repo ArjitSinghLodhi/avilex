@@ -1,4 +1,5 @@
 use crate::app::system::SystemAccessMeta;
+use crate::app::system::SystemData;
 use crate::app::system::SystemParam;
 use crate::app::system::system_error::SystemFailError;
 use crate::ecs::world::World;
@@ -340,5 +341,47 @@ where
             type_id: TypeId::of::<F>(),
             name: std::any::type_name::<F>().to_string(),
         }));
+    }
+}
+
+impl<I: SystemInput, O> IntoSystem<()> for Box<dyn System<In = I, Out = O>> {
+    type SystemType = Box<dyn System<In = I, Out = O>>;
+
+    fn into_system(self) -> Self::SystemType {
+        self
+    }
+}
+
+impl<I: SystemInput, O> System for Box<dyn System<In = I, Out = O>> {
+    type In = I;
+    type Out = O;
+    fn run(
+        &mut self,
+        input: <Self::In as SystemInput>::Inner<'_>,
+        world: &World,
+    ) -> Result<Self::Out, RunSystemError> {
+        (&mut **self).run(input, world)
+    }
+
+    fn identity(&self) -> &dyn SystemIdentity {
+        (**self).identity()
+    }
+}
+
+impl<I: SystemInput, O> SystemData for Box<dyn System<In = I, Out = O>> {
+    fn get_raw(&self, id: TypeId) -> Option<&Box<dyn std::any::Any + Send + Sync>> {
+        (**self).get_raw(id)
+    }
+
+    fn get_raw_mut(&mut self, id: TypeId) -> Option<&mut Box<dyn std::any::Any + Send + Sync>> {
+        (**self).get_raw_mut(id)
+    }
+
+    fn insert_raw(&mut self, id: TypeId, value: Box<dyn std::any::Any + Send + Sync>) {
+        (**self).insert_raw(id, value);
+    }
+
+    fn remove_raw(&mut self, id: TypeId) -> Option<Box<dyn std::any::Any + Send + Sync + 'static>> {
+        (**self).remove_raw(id)
     }
 }

@@ -350,7 +350,8 @@ pub mod app {
     pub mod schedule {
         pub use crate::schedule::{
             DefaultSchedulesPlugin, First, Last, PostUpdate, PreUpdate, Schedule, ScheduleLabel,
-            Startup, SystemExecutor, SystemsSchedule, Update,
+            Startup, SystemsSchedule, Update,
+            executors::SystemExecutor,
             executors::{
                 multi_threaded::MultiThreadedExecutor, single_threaded::SingleThreadedExecutor,
             },

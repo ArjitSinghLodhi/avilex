@@ -1,7 +1,7 @@
 use crate::{
     ecs::world::World,
     system::{
-        ParallelSystemParam, SystemIdentity,
+        SystemIdentity,
         condition::{Condition, ConditionFn},
         system_set::SystemSet,
         system_traits::{AsSchedulingTarget, SystemOrderings},
@@ -96,10 +96,7 @@ pub trait SystemSetConfigsExt {
     /// Appends a [`Condition`] that must evaluate to `true` for the sets in this collection to run.
     ///
     /// [`Condition`]: crate::app::system::condition::Condition
-    fn run_if<P, Cond>(self, condition: Cond) -> SystemSetConfigs
-    where
-        P: ParallelSystemParam + 'static,
-        Cond: Condition<P> + Send + Sync + Clone + 'static;
+    fn run_if<P>(self, condition: impl Condition<P> + Clone) -> SystemSetConfigs;
 }
 
 #[doc(hidden)]
@@ -195,11 +192,7 @@ pub trait SystemSetExt: SystemSet + Sized {
     /// Appends a [`Condition`] that must evaluate to `true` for the systems in this set to run.
     ///
     /// [`Condition`]: crate::app::system::condition::Condition
-    fn run_if<P, C>(self, cond: C) -> SetConfig
-    where
-        P: 'static,
-        C: crate::system::condition::Condition<P> + Send + Sync + Clone + 'static,
-    {
+    fn run_if<P>(self, cond: impl Condition<P>) -> SetConfig {
         let mut config = SetConfig {
             set: Box::new(self),
             run_after_sets: Vec::new(),
@@ -364,11 +357,7 @@ impl SystemSetConfigsExt for SystemSetConfigs {
         self
     }
 
-    fn run_if<P, Cond>(mut self, condition: Cond) -> SystemSetConfigs
-    where
-        P: 'static,
-        Cond: Condition<P> + Send + Sync + Clone + 'static,
-    {
+    fn run_if<P>(mut self, condition: impl Condition<P> + Clone) -> SystemSetConfigs {
         for config in self.configs.iter_mut() {
             let cond_clone = condition.clone();
             let gate: ConditionFn = Box::new(move |w: &World| cond_clone.run(w));
@@ -403,10 +392,7 @@ macro_rules! impl_system_set_configs_for_tuples {
                 SystemSetConfigs { configs: self.into_configs() }.in_set(parent)
             }
 
-            fn run_if<P, Cond>(self, cond: Cond) -> SystemSetConfigs
-            where
-                P: ParallelSystemParam + 'static,
-                Cond: Condition<P> + Send + Sync + Clone + 'static,
+            fn run_if<P>(self, cond: impl Condition<P> + Clone) -> SystemSetConfigs
             {
                 SystemSetConfigs { configs: self.into_configs() }.run_if(cond)
             }

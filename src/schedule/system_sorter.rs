@@ -4,8 +4,6 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     app::system::SystemExt,
-    app_impl::SystemsBlock,
-    schedule::{Schedule, Startup},
     system::{SystemAccessMeta, SystemNode, system_traits::SystemOrderings},
 };
 
@@ -102,38 +100,6 @@ fn check_access_conflicts(a: &SystemAccessView, b: &SystemAccessView) -> bool {
     }
 
     false
-}
-
-pub(crate) fn dispatch_system_blocks(
-    systems_blocks: &mut Vec<SystemsBlock>,
-    startup_schedule: &mut Schedule,
-    schedules: &mut [Schedule],
-) {
-    for system_block in systems_blocks.drain(..) {
-        if (*system_block.schedule).dyn_eq(&Startup) {
-            for system in system_block.systems {
-                startup_schedule.add_system_boxed(system);
-            }
-            continue;
-        }
-
-        let target_schedule = match schedules
-            .iter_mut()
-            .find(|s| (*s.label()).dyn_eq(&*system_block.schedule))
-        {
-            Some(schedule) => schedule,
-            None => {
-                panic!(
-                    "❌ CONFIGURATION ERROR: Attempted to add systems to Schedule '{:?}' which was never registered via add_schedule()!",
-                    system_block.schedule
-                );
-            }
-        };
-
-        for system in system_block.systems {
-            target_schedule.add_system_boxed(system);
-        }
-    }
 }
 
 pub(crate) fn sort_schedule_systems(schedule_systems: &mut Vec<SystemNode<(), ()>>) {

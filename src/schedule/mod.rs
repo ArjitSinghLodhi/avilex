@@ -1,7 +1,16 @@
 use crate::{
-    app::{App, dyn_traits::DynEq, plugin::Plugin},
-    schedule::executors::multi_threaded::MultiThreadedExecutor,
-    system::{System, SystemNode},
+    app::{App, dyn_traits::DynEq, plugin::Plugin, system::SystemExt},
+    schedule::{
+        executors::{SystemExecutor, multi_threaded::MultiThreadedExecutor},
+        system_sorter::sort_schedule_systems,
+    },
+    system::{
+        SystemIdentity, SystemNode,
+        system_configs_traits::IntoSystemConfigs,
+        system_set::{SetRegistration, SystemSet, preprocess_system_sets},
+        system_set_traits::IntoSystemSetConfigs,
+        system_traits::SystemOrderings,
+    },
     world::World,
 };
 
@@ -28,11 +37,11 @@ pub struct DefaultSchedulesPlugin;
 
 impl Plugin for DefaultSchedulesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_schedule(Schedule::new(First))
-            .add_schedule(Schedule::new(PreUpdate))
-            .add_schedule(Schedule::new(Update))
-            .add_schedule(Schedule::new(PostUpdate))
-            .add_schedule(Schedule::new(Last));
+        app.insert_schedule(Schedule::new(First))
+            .insert_schedule(Schedule::new(PreUpdate))
+            .insert_schedule(Schedule::new(Update))
+            .insert_schedule(Schedule::new(PostUpdate))
+            .insert_schedule(Schedule::new(Last));
 
         app.configure_schedule_order(First, PreUpdate)
             .configure_schedule_order(PreUpdate, Update)
@@ -94,17 +103,6 @@ impl SystemsSchedule {
     }
 }
 
-/// Strategy trait defining how the systems inside a [`SystemsSchedule`] are initialized and executed.
-///
-/// [`SystemsSchedule`]: crate::app::schedule::SystemsSchedule
-pub trait SystemExecutor: 'static {
-    /// Prepares or partitions `schedule` before execution begins.
-    fn init(&mut self, schedule: &mut SystemsSchedule);
-
-    /// Executes the systems in `schedule` against `world`.
-    fn run(&mut self, schedule: &mut SystemsSchedule, world: &mut World);
-}
-
 /// A labeled collection of systems paired with a [`SystemExecutor`] that runs them.
 ///
 /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
@@ -112,6 +110,8 @@ pub struct Schedule {
     label: Box<dyn ScheduleLabel>,
     systems_schedule: SystemsSchedule,
     executor: Box<dyn SystemExecutor>,
+    set_registrations: Vec<SetRegistration>,
+    dirty: bool,
 }
 
 impl Schedule {
@@ -132,6 +132,8 @@ impl Schedule {
             executor: label.default_executor(),
             label,
             systems_schedule: SystemsSchedule::new(),
+            set_registrations: Vec::new(),
+            dirty: false,
         }
     }
 
@@ -179,35 +181,104 @@ impl Schedule {
         self.executor = executor;
     }
 
-    /// Builder method that appends a [`System`] to this schedule.
-    ///
-    /// [`System`]: crate::app::system::System
-    pub fn with_system(self, system: impl System<In = (), Out = ()> + 'static) -> Self {
-        self.with_system_boxed(Box::new(system))
-    }
-
-    /// Builder method that appends a boxed [`System`] to this schedule.
-    ///
-    /// [`System`]: crate::app::system::System
-    pub fn with_system_boxed(mut self, system: Box<dyn System<In = (), Out = ()>>) -> Self {
-        self.add_system_boxed(system);
+    /// Marks this schedule as needing to be rebuilt before its next run.
+    pub fn set_dirty(&mut self) -> &mut Self {
+        self.dirty = true;
         self
     }
 
-    /// Appends a [`System`] to this schedule.
-    ///
-    /// [`System`]: crate::app::system::System
-    pub fn add_system(&mut self, system: impl System<In = (), Out = ()> + 'static) {
-        self.systems_schedule.systems.push(SystemNode::new(system));
-    }
-
-    /// Appends a boxed [`System`] to this schedule.
-    ///
-    /// [`System`]: crate::app::system::System
-    pub fn add_system_boxed(&mut self, system: Box<dyn System<In = (), Out = ()>>) {
+    /// Appends one or more systems to this schedule.
+    pub fn add_systems<M>(&mut self, systems: impl IntoSystemConfigs<M>) -> &mut Self {
+        self.set_dirty();
+        let configs = systems.into_configs();
         self.systems_schedule
             .systems
-            .push(SystemNode::new_boxed(system));
+            .extend(configs.systems.into_iter().map(SystemNode::new_boxed));
+        self
+    }
+
+    /// Builder method that appends one or more systems to this schedule.
+    pub fn with_systems<M>(mut self, systems: impl IntoSystemConfigs<M>) -> Self {
+        self.add_systems(systems);
+        self
+    }
+
+    /// Configures one or more system sets in this schedule.
+    pub fn configure_sets(&mut self, sets: impl IntoSystemSetConfigs) -> &mut Self {
+        self.set_dirty();
+        for config in sets.into_configs() {
+            let registration = SetRegistration {
+                set: config.set,
+                run_after_sets: config.run_after_sets,
+                run_before_sets: config.run_before_sets,
+                run_after_systems: config.run_after_systems,
+                run_before_systems: config.run_before_systems,
+                member_of: config.member_of,
+                condition_gates: config.condition_gates,
+            };
+            self.set_registrations.push(registration);
+        }
+
+        self
+    }
+
+    /// Builder method that configures one or more system sets in this schedule.
+    pub fn with_configured_sets(mut self, sets: impl IntoSystemSetConfigs) -> Self {
+        self.configure_sets(sets);
+        self
+    }
+
+    /// Builds and initializes this schedule's systems and [`SystemSet`]s if dirty.
+    ///
+    /// This resolves [`SystemSet`] constraints, sorts systems into their execution order,
+    /// initializes the configured [`SystemExecutor`], and extracts the condition gates from
+    /// registered [`SystemSet`]s into guard nodes so they are not duplicated on subsequent
+    /// rebuilds. If a guard node already exists for a [`SystemSet`], any newly added
+    /// conditions are pushed onto that existing guard node instead of creating another one.
+    ///
+    /// **Note:** All [`SystemSet`] registrations, system ordering metadata, and previously
+    /// generated condition guard nodes remain intact across rebuilds so newly added systems
+    /// or new set conditions are properly validated and ordered relative to already-initialized
+    /// systems.
+    ///
+    /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
+    pub fn initialize(&mut self) {
+        if !self.dirty {
+            return;
+        }
+
+        deduplicate_orderings(
+            &mut self.systems_schedule.systems,
+            &mut self.set_registrations,
+        );
+
+        let mut generated_guards = Vec::new();
+        preprocess_system_sets(
+            &mut self.systems_schedule.systems,
+            &mut self.set_registrations,
+            &mut generated_guards,
+        );
+        self.systems_schedule.systems.extend(generated_guards);
+
+        deduplicate_orderings(
+            &mut self.systems_schedule.systems,
+            &mut self.set_registrations,
+        );
+
+        sort_schedule_systems(&mut self.systems_schedule.systems);
+
+        self.executor.init(&mut self.systems_schedule);
+
+        self.dirty = false;
+    }
+
+    /// Builds the schedule if needed and executes all of its systems on `world` using the configured [`SystemExecutor`].
+    ///
+    /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+    pub fn run(&mut self, world: &mut World) {
+        self.initialize();
+        self.executor.run(&mut self.systems_schedule, world);
     }
 
     /// Returns a shared reference to the underlying [`SystemsSchedule`].
@@ -251,24 +322,79 @@ impl Schedule {
     pub fn set_label_boxed(&mut self, label: Box<dyn ScheduleLabel>) {
         self.label = label;
     }
-
-    /// Initializes the schedule's [`SystemExecutor`] with the current [`SystemsSchedule`].
-    ///
-    /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
-    /// [`SystemsSchedule`]: crate::app::schedule::SystemsSchedule
-    pub fn init_executor(&mut self) {
-        self.executor.init(&mut self.systems_schedule);
-    }
-
-    /// Runs all systems in this schedule against `world` using the configured [`SystemExecutor`].
-    ///
-    /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
-    pub fn run(&mut self, world: &mut World) {
-        self.executor.run(&mut self.systems_schedule, world);
-    }
 }
 
 pub(crate) struct ScheduleConstraint {
     pub(crate) before: Box<dyn ScheduleLabel>,
     pub(crate) after: Box<dyn ScheduleLabel>,
+}
+
+fn dedup_sets(sets: &mut Vec<Box<dyn SystemSet>>) {
+    let mut i = 0;
+    while i < sets.len() {
+        if sets[..i]
+            .iter()
+            .any(|existing| existing.dyn_eq(sets[i].as_ref()))
+        {
+            sets.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn dedup_identities(ids: &mut Vec<Box<dyn SystemIdentity>>) {
+    let mut i = 0;
+    while i < ids.len() {
+        if ids[..i]
+            .iter()
+            .any(|existing| existing.dyn_system_eq(ids[i].as_ref()))
+        {
+            ids.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+pub(crate) fn deduplicate_orderings(
+    schedule_systems: &mut [SystemNode<(), ()>],
+    registrations: &mut Vec<SetRegistration>,
+) {
+    let mut i = 0;
+    while i < registrations.len() {
+        if let Some(existing_idx) = registrations[..i]
+            .iter()
+            .position(|existing| existing.set.dyn_eq(registrations[i].set.as_ref()))
+        {
+            let dup = registrations.remove(i);
+            let target = &mut registrations[existing_idx];
+            target.run_after_sets.extend(dup.run_after_sets);
+            target.run_before_sets.extend(dup.run_before_sets);
+            target.run_after_systems.extend(dup.run_after_systems);
+            target.run_before_systems.extend(dup.run_before_systems);
+            target.member_of.extend(dup.member_of);
+            target.condition_gates.extend(dup.condition_gates);
+        } else {
+            i += 1;
+        }
+    }
+
+    for reg in registrations.iter_mut() {
+        dedup_sets(&mut reg.run_after_sets);
+        dedup_sets(&mut reg.run_before_sets);
+        dedup_sets(&mut reg.member_of);
+        dedup_identities(&mut reg.run_after_systems);
+        dedup_identities(&mut reg.run_before_systems);
+    }
+
+    for node in schedule_systems.iter_mut() {
+        if let Some(orderings) = node.system_mut().get_data_mut::<SystemOrderings>() {
+            dedup_sets(&mut orderings.run_after_sets);
+            dedup_sets(&mut orderings.run_before_sets);
+            dedup_sets(&mut orderings.member_of);
+            dedup_identities(&mut orderings.run_after_systems);
+            dedup_identities(&mut orderings.run_before_systems);
+        }
+    }
 }

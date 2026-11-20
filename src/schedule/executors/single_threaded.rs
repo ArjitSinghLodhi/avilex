@@ -1,5 +1,5 @@
 use crate::{
-    schedule::{SystemExecutor, SystemsSchedule},
+    schedule::{SystemsSchedule, executors::SystemExecutor},
     system::system_error::{SystemErrorHandler, default_system_error_handler},
     world::World,
 };
@@ -16,6 +16,13 @@ use crate::{
 /// [`default_system_error_handler`]: crate::app::system::system_error::default_system_error_handler
 #[derive(Default)]
 pub struct SingleThreadedExecutor;
+
+impl SingleThreadedExecutor {
+    /// Creates a new [`SingleThreadedExecutor`].
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
 impl SystemExecutor for SingleThreadedExecutor {
     fn init(&mut self, _schedule: &mut SystemsSchedule) {}

@@ -4,25 +4,20 @@ pub use plugin::Plugin;
 use rustc_hash::FxHashSet;
 
 use crate::{
-    app::system::SystemExt,
     app_impl::plugin::PluginGroup,
     resources::Resource,
     schedule::{
         DefaultSchedulesPlugin, Schedule, ScheduleConstraint, ScheduleLabel, Startup,
         schedule_sorter::sort_schedules,
-        system_sorter::{dispatch_system_blocks, sort_schedule_systems},
     },
     states::{States, setup_states_schedules_and_systems},
     system::{
-        System, SystemAccessMeta,
         system_configs_traits::IntoSystemConfigs,
         system_error::{SystemErrorHandler, SystemErrorHandlerFn},
         system_set_traits::IntoSystemSetConfigs,
-        system_traits::SystemOrderings,
     },
     world::World,
 };
-use crate::{system::SystemNode, system::system_set::SetRegistration};
 use std::{
     any::TypeId,
     sync::atomic::{AtomicBool, Ordering},
@@ -105,11 +100,6 @@ impl ConfigurationContext {
     }
 }
 
-pub(crate) struct SystemsBlock {
-    pub(crate) schedule: Box<dyn ScheduleLabel>,
-    pub(crate) systems: Vec<Box<dyn System<In = (), Out = ()>>>,
-}
-
 impl Default for App {
     fn default() -> Self {
         Self::new()
@@ -133,7 +123,7 @@ type RunnerFn = Box<dyn FnOnce(&mut App) + 'static>;
 /// 3. **Finalization (`build`):** Calling [`App::build`] resolves schedule and system ordering,
 ///    initializes executors, and auto-registers reactive component trackers.
 /// 4. **Startup (`run_startup`):** Calling [`App::run_startup`] executes the [`Startup`] schedule
-///    once. When driving the app manually (instead of using [`App::run`]), you **must** call
+///    once. When driving the app manually (instead of using [`App::run`] or inside a runner called by [`App::run`]), you **must** call
 ///    [`App::run_startup`] after [`App::build`] before calling [`App::update`], as
 ///    [`App::update`] does not run startup systems.
 /// 5. **Execution (`update` / `run`):** Calling [`App::update`] runs all frame schedules once in
@@ -143,14 +133,7 @@ type RunnerFn = Box<dyn FnOnce(&mut App) + 'static>;
 ///
 /// # Example
 /// ```rust
-/// # use avilex::prelude::*;
-/// fn hello_world() {
-///     println!("Hello, world!");
-/// }
-///
-/// App::new()
-///     .add_systems(Update, hello_world)
-///     .run();
+#[doc = include_str!("../../examples/01_hello_world.rs")]
 /// ```
 ///
 /// [`World`]: crate::ecs::world::World
@@ -177,9 +160,7 @@ pub struct App {
     registered_plugins: FxHashSet<TypeId>,
     startup_schedule: Schedule,
     schedules: Vec<Schedule>,
-    systems_blocks: Vec<SystemsBlock>,
     pub(crate) schedule_order_constraints: Vec<ScheduleConstraint>,
-    pub(crate) set_registrations: Vec<SetRegistration>,
     runner_fn: RunnerFn,
     configuration_context: ConfigurationContext,
 }
@@ -220,9 +201,7 @@ impl App {
             registered_plugins: FxHashSet::default(),
             startup_schedule: Schedule::new(Startup),
             schedules: Vec::new(),
-            systems_blocks: Vec::new(),
             schedule_order_constraints: Vec::new(),
-            set_registrations: Vec::new(),
             runner_fn: Box::new(runner_once),
             configuration_context: ConfigurationContext::new(),
         }
@@ -260,53 +239,96 @@ impl App {
         self
     }
 
-    /// Registers a frame [`Schedule`] with this [`App`].
-    ///
-    /// # Panics
-    /// Panics if `schedule` uses the [`Startup`] label, which cannot be overwritten.
-    ///
-    /// [`Schedule`]: crate::app::schedule::Schedule
-    /// [`App`]: crate::app::App
-    /// [`Startup`]: crate::app::schedule::Startup
-    pub fn add_schedule(&mut self, schedule: Schedule) -> &mut Self {
+    /// Inserts a new schedule under the provided label, overwriting any existing schedule with the same label.
+    pub fn insert_schedule(&mut self, schedule: Schedule) -> &mut Self {
         self.configuration().not_ready();
 
         if schedule.label().dyn_eq(&Startup) {
-            panic!("Startup schedule cannot be overwritten")
+            self.startup_schedule = schedule;
         } else {
-            self.schedules.push(schedule);
+            match self
+                .schedules
+                .iter()
+                .position(|s| s.label().dyn_eq(schedule.label()))
+            {
+                Some(index) => self.schedules[index] = schedule,
+                None => self.schedules.push(schedule),
+            }
         }
         self
     }
 
-    /// Configures sets within `schedule`.
+    /// Initializes an empty `schedule` under the provided `label`, if it does not exist.
     ///
-    /// [`SetConfig`]: crate::app::system::system_set::SetConfig
-    /// [`SystemSetConfigs`]: crate::app::system::system_set::SystemSetConfigs
-    pub fn configure_sets(
-        &mut self,
-        schedule: impl ScheduleLabel,
-        set_configs: impl IntoSystemSetConfigs,
-    ) -> &mut Self {
-        self.configuration().not_ready();
-
-        let schedule_box: Box<dyn ScheduleLabel> = Box::new(schedule);
-
-        for config in set_configs.into_configs() {
-            let registration = SetRegistration {
-                schedule: schedule_box.dyn_clone(),
-                set: config.set,
-                run_after_sets: config.run_after_sets,
-                run_before_sets: config.run_before_sets,
-                run_after_systems: config.run_after_systems,
-                run_before_systems: config.run_before_systems,
-                member_of: config.member_of,
-                condition_gates: config.condition_gates,
-            };
-            self.set_registrations.push(registration);
+    /// See [`insert_schedule`] to insert an existing schedule.
+    ///
+    /// [`insert_schedule`]: crate::app::App::insert_schedule
+    pub fn init_schedule(&mut self, label: impl ScheduleLabel) -> &mut Self {
+        if !label.dyn_eq(&Startup) && !self.schedules.iter().any(|s| s.label().dyn_eq(&label)) {
+            self.schedules.push(Schedule::new(label));
         }
 
         self
+    }
+
+    /// Returns a reference to the [`Schedule`] with the provided `label` if it exists.
+    ///
+    /// [`Schedule`]: crate::app::schedule::Schedule
+    pub fn get_schedule(&self, label: impl ScheduleLabel) -> Option<&Schedule> {
+        if label.dyn_eq(&Startup) {
+            Some(&self.startup_schedule)
+        } else {
+            self.schedules.iter().find(|s| s.label().dyn_eq(&label))
+        }
+    }
+
+    /// Returns a mutable reference to the [`Schedule`] with the provided `label` if it exists.
+    ///
+    /// [`Schedule`]: crate::app::schedule::Schedule
+    pub fn get_schedule_mut(&mut self, label: impl ScheduleLabel) -> Option<&mut Schedule> {
+        if label.dyn_eq(&Startup) {
+            Some(&mut self.startup_schedule)
+        } else {
+            self.schedules.iter_mut().find(|s| s.label().dyn_eq(&label))
+        }
+    }
+
+    /// Runs function `f` with the [`Schedule`] associated with `label`.
+    ///
+    /// **Note:** This will create the schedule if it does not already exist.
+    ///
+    /// [`Schedule`]: crate::app::schedule::Schedule
+    pub fn edit_schedule(
+        &mut self,
+        label: impl ScheduleLabel,
+        f: impl FnOnce(&mut Schedule),
+    ) -> &mut Self {
+        if label.dyn_eq(&Startup) {
+            f(&mut self.startup_schedule);
+        } else {
+            match self.schedules.iter().position(|s| s.label().dyn_eq(&label)) {
+                Some(index) => f(&mut self.schedules[index]),
+                None => {
+                    let mut schedule = Schedule::new(label);
+                    f(&mut schedule);
+                    self.schedules.push(schedule);
+                }
+            }
+        }
+
+        self
+    }
+
+    /// Configures one or more system sets in `schedule`.
+    pub fn configure_sets(
+        &mut self,
+        schedule: impl ScheduleLabel,
+        sets: impl IntoSystemSetConfigs,
+    ) -> &mut Self {
+        self.configuration().not_ready();
+        self.edit_schedule(schedule, |schedule| {
+            schedule.configure_sets(sets);
+        })
     }
 
     /// Adds a topological ordering constraint requiring schedule `before` to execute prior to
@@ -331,25 +353,12 @@ impl App {
         systems: impl IntoSystemConfigs<M>,
     ) -> &mut Self {
         self.configuration().not_ready();
-        let configs = systems.into_configs();
-
-        if let Some(existing_block) = self
-            .systems_blocks
-            .iter_mut()
-            .find(|b| (*b.schedule).dyn_eq(&schedule))
-        {
-            existing_block.systems.extend(configs.systems);
-        } else {
-            let block = SystemsBlock {
-                schedule: Box::new(schedule),
-                systems: configs.systems,
-            };
-            self.systems_blocks.push(block);
-        }
-        self
+        self.edit_schedule(schedule, |schedule| {
+            schedule.add_systems(systems);
+        })
     }
 
-    /// Adds one or more plugins (or a [`PluginGroup`]) and immediately builds them on this [`App`].
+    /// Adds a [`PluginGroup`] and immediately builds them on this [`App`].
     ///
     /// [`PluginGroup`]: crate::app::plugin::PluginGroup
     /// [`App`]: crate::app::App
@@ -415,15 +424,23 @@ impl App {
         self
     }
 
-    /// Finalizes the [`App`] by resolving schedule and system ordering, initializing executors,
-    /// and registering reactive component trackers.
+    /// Finalizes the [`App`] by resolving schedule ordering (and draining consumed schedule
+    /// ordering constraints), initializing all registered [`Schedule`]s, and registering
+    /// component removal tracking buffers.
+    ///
+    /// See [`Schedule::initialize`] for details on how each schedule's systems, [`SystemSet`]
+    /// constraints, condition guard nodes, and rebuild metadata are processed.
     ///
     /// # Panics
-    /// Panics if called from inside [`Plugin::build`] or if [`App::build`] has already been
-    /// called.
+    /// Panics if called while building a [`Plugin`] inside [`App::add_plugins`], or if
+    /// [`App::build`] has already been called.
     ///
     /// [`App`]: crate::app::App
-    /// [`Plugin::build`]: crate::app::plugin::Plugin::build
+    /// [`Schedule`]: crate::app::schedule::Schedule
+    /// [`Schedule::initialize`]: crate::app::schedule::Schedule::initialize
+    /// [`SystemSet`]: crate::app::system::system_set::SystemSet
+    /// [`Plugin`]: crate::app::plugin::Plugin
+    /// [`App::add_plugins`]: Self::add_plugins
     /// [`App::build`]: Self::build
     pub fn build(&mut self) -> &mut Self {
         if self.is_building_plugins() {
@@ -435,7 +452,6 @@ impl App {
         self.configuration().not_ready();
         self.build_everything();
         *APP_BUILT.write() = true;
-        self.cleanup_build();
         self.configuration().built = true;
         self
     }
@@ -679,79 +695,15 @@ impl App {
     fn build_everything(&mut self) {
         self.configure_schedules();
         self.configure_systems();
-        self.schedules.iter_mut().for_each(|schedule| {
-            schedule.init_executor();
-        });
-        self.startup_schedule.init_executor();
-        self.configuration().schedules_processed = true;
         register_removal_tracking_buffers(self.world_mut());
+        self.schedule_order_constraints.clear();
     }
 
     fn configure_systems(&mut self) {
-        let global_registrations = std::mem::take(&mut self.set_registrations);
-
-        dispatch_system_blocks(
-            &mut self.systems_blocks,
-            &mut self.startup_schedule,
-            &mut self.schedules,
-        );
-
-        let mut remaining_registrations = global_registrations;
-        {
-            let label = self.startup_schedule.label();
-            let mut schedule_registrations = Vec::new();
-            let mut next_remaining = Vec::new();
-            for reg in remaining_registrations.drain(..) {
-                if reg.schedule.dyn_eq(label) {
-                    schedule_registrations.push(reg);
-                } else {
-                    next_remaining.push(reg);
-                }
-            }
-            remaining_registrations = next_remaining;
-
-            let systems = self.startup_schedule.systems_schedule_mut().systems_mut();
-            let mut borrowed_systems: Vec<&mut SystemNode<(), ()>> = systems.iter_mut().collect();
-            let mut generated_guards = Vec::new();
-            crate::system::system_set::preprocess_system_sets(
-                &mut borrowed_systems,
-                &mut schedule_registrations,
-                &mut generated_guards,
-            );
-            systems.extend(generated_guards);
-        }
-
-        for schedule in &mut self.schedules {
-            let label = schedule.label();
-            let mut schedule_registrations = Vec::new();
-            let mut next_remaining = Vec::new();
-            for reg in remaining_registrations.drain(..) {
-                if reg.schedule.dyn_eq(label) {
-                    schedule_registrations.push(reg);
-                } else {
-                    next_remaining.push(reg);
-                }
-            }
-            remaining_registrations = next_remaining;
-
-            let systems = schedule.systems_schedule_mut().systems_mut();
-            let mut borrowed_systems: Vec<&mut SystemNode<(), ()>> = systems.iter_mut().collect();
-            let mut generated_guards = Vec::new();
-            crate::system::system_set::preprocess_system_sets(
-                &mut borrowed_systems,
-                &mut schedule_registrations,
-                &mut generated_guards,
-            );
-            systems.extend(generated_guards);
-        }
-
-        sort_schedule_systems(self.startup_schedule.systems_schedule_mut().systems_mut());
-
-        for schedule in &mut self.schedules {
-            let systems = schedule.systems_schedule_mut().systems_mut();
-            sort_schedule_systems(systems);
-        }
-
+        self.startup_schedule.initialize();
+        self.schedules
+            .iter_mut()
+            .for_each(|schedule| schedule.initialize());
         self.configuration().systems_processed = true;
     }
 
@@ -760,34 +712,7 @@ impl App {
             std::mem::take(&mut self.schedules),
             &self.schedule_order_constraints,
         );
-    }
-
-    fn cleanup_build(&mut self) {
-        self.set_registrations.clear();
-        self.registered_plugins.clear();
-        self.systems_blocks.clear();
-        self.systems_blocks.shrink_to_fit();
-        self.schedule_order_constraints.clear();
-        self.startup_schedule
-            .systems_schedule_mut()
-            .systems_mut()
-            .iter_mut()
-            .for_each(|node| {
-                let system = node.system_mut();
-                system.remove::<SystemAccessMeta>();
-                system.remove::<SystemOrderings>();
-            });
-        self.schedules.iter_mut().for_each(|schedule| {
-            schedule
-                .systems_schedule_mut()
-                .systems_mut()
-                .iter_mut()
-                .for_each(|node| {
-                    let system = node.system_mut();
-                    system.remove::<SystemAccessMeta>();
-                    system.remove::<SystemOrderings>();
-                });
-        });
+        self.configuration().schedules_processed = true;
     }
 }
 

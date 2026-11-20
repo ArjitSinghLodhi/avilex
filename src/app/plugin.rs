@@ -562,14 +562,7 @@ macro_rules! impl_plugin_group_tuple {
                 let mut combined = PluginGroupBuilder::new_internal();
                 $(
                     let sub_builder = $T.build();
-                    combined.disabled.extend(sub_builder.disabled);
-                    for entry in sub_builder.entries {
-                        if entry.plugin.is_unique() && combined.entries.iter().any(|e| e.id == entry.id) {
-                            panic!("{}", PluginError::DuplicateUniquePlugin { name: entry.plugin.name() });
-                        }
-                        combined.entries.retain(|e| e.id != entry.id);
-                        combined.entries.push(entry);
-                    }
+                    combined = combined.add_group(sub_builder);
                 )*
                 combined
             }

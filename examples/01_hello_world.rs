@@ -5,5 +5,5 @@ fn main() {
 }
 
 fn hello_world_system() {
-    println!("hello world");
+    println!("Hello, world!");
 }

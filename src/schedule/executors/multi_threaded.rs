@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use crate::{
     app::system::SystemExt,
-    schedule::{SystemExecutor, SystemsSchedule},
+    schedule::{SystemsSchedule, executors::SystemExecutor},
     system::{
         SystemAccessMeta,
         system_error::{SystemErrorHandler, default_system_error_handler},

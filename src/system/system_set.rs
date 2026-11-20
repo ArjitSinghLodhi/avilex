@@ -1,11 +1,9 @@
-use std::any::Any;
-use std::marker::PhantomData;
+use std::any::{Any, TypeId};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::app::dyn_traits::DynEq;
 use crate::app::system::{SystemData, SystemExt};
-use crate::schedule::ScheduleLabel;
 use crate::system::condition::{ConditionFn, RunConditionsList};
 use crate::system::system_error::RunSystemError;
 use crate::system::system_storage::FunctionData;
@@ -36,16 +34,18 @@ pub trait SystemSet: Debug + DynEq + Send + Sync + 'static {
     ) -> SystemNode<(), ()>;
 }
 
-#[doc(hidden)]
-pub struct GuardNode<S: SystemSet> {
-    pub(crate) _marker: PhantomData<S>,
+pub(crate) struct GuardGatesData {
     pub(crate) gates: Vec<ConditionFn>,
     pub(crate) shared_flag: Arc<AtomicBool>,
+}
+
+#[doc(hidden)]
+pub struct GuardNode {
     pub(crate) storage: FunctionData,
     pub(crate) identity: GuardIdentity,
 }
 
-impl<S: SystemSet> SystemData for GuardNode<S> {
+impl SystemData for GuardNode {
     fn get_raw(&self, id: std::any::TypeId) -> Option<&Box<dyn std::any::Any + Send + Sync>> {
         self.storage.get_raw_data(&id)
     }
@@ -66,7 +66,7 @@ impl<S: SystemSet> SystemData for GuardNode<S> {
     }
 }
 
-impl<S: SystemSet> System for GuardNode<S> {
+impl System for GuardNode {
     type In = ();
     type Out = ();
     fn run(
@@ -74,8 +74,11 @@ impl<S: SystemSet> System for GuardNode<S> {
         _input: <Self::In as SystemInput>::Inner<'_>,
         world: &World,
     ) -> Result<Self::Out, RunSystemError> {
-        let result = self.gates.iter().all(|cond| cond(world));
-        self.shared_flag.store(result, Ordering::Release);
+        let gates_data = self.get_data_mut::<GuardGatesData>().unwrap();
+
+        let passed = gates_data.gates.iter().all(|gate| gate(world));
+        gates_data.shared_flag.store(passed, Ordering::Release);
+
         Ok(())
     }
 
@@ -84,18 +87,24 @@ impl<S: SystemSet> System for GuardNode<S> {
     }
 }
 
-impl<S: SystemSet> GuardNode<S> {
+impl GuardNode {
     #[doc(hidden)]
     pub fn new(
         set: Box<dyn SystemSet>,
         gates: Vec<ConditionFn>,
         shared_flag: Arc<AtomicBool>,
     ) -> Self {
+        let mut storage = FunctionData::new();
+        storage.insert_raw_data(
+            &TypeId::of::<GuardGatesData>(),
+            Box::new(GuardGatesData {
+                gates,
+                shared_flag: shared_flag.clone(),
+            }),
+        );
+
         Self {
-            _marker: PhantomData,
-            gates,
-            shared_flag,
-            storage: FunctionData::new(),
+            storage,
             identity: GuardIdentity {
                 set: set.dyn_clone(),
                 name: format!("SystemSetConditionGuard({:?})", set),
@@ -129,7 +138,7 @@ impl SystemIdentity for GuardIdentity {
     }
     fn dyn_system_eq(&self, other: &dyn SystemIdentity) -> bool {
         if let Some(other_concrete) = other.as_any().downcast_ref::<Self>() {
-            self.set.dyn_eq(other_concrete.set.as_ref())
+            self.set.dyn_eq(&*other_concrete.set)
         } else {
             false
         }
@@ -146,7 +155,6 @@ impl SystemIdentity for GuardIdentity {
 }
 
 pub(crate) struct SetRegistration {
-    pub(crate) schedule: Box<dyn ScheduleLabel>,
     pub(crate) set: Box<dyn SystemSet>,
     pub(crate) run_after_sets: Vec<Box<dyn SystemSet>>,
     pub(crate) run_before_sets: Vec<Box<dyn SystemSet>>,
@@ -159,7 +167,7 @@ pub(crate) struct SetRegistration {
 const SYSTEM_SET_ERROR_STR: &str = "SystemSetError";
 
 pub(crate) fn preprocess_system_sets(
-    schedule_systems: &mut [&mut SystemNode<(), ()>],
+    schedule_systems: &mut Vec<SystemNode<(), ()>>,
     registrations: &mut [SetRegistration],
     generated_guards: &mut Vec<SystemNode<(), ()>>,
 ) {
@@ -285,13 +293,38 @@ pub(crate) fn preprocess_system_sets(
         }
 
         let gates = std::mem::take(&mut reg.condition_gates);
-
         let shared_flag = Arc::new(AtomicBool::new(false));
         let set_identity = reg.set.dyn_clone();
-        let guard_node = reg.set.create_guard_node(gates, shared_flag.clone());
+        let guard_node_created = reg.set.create_guard_node(gates, shared_flag.clone());
+        let guard_node_index = schedule_systems.iter().position(|sys| {
+            sys.system()
+                .identity()
+                .dyn_system_eq(guard_node_created.system().identity())
+        });
 
-        guard_nodes.push((set_identity, shared_flag, guard_node));
+        let (flag, guard_node) = if let Some(index) = guard_node_index {
+            let mut existing = schedule_systems.remove(index);
+            let mut created = guard_node_created;
+            let new_gates = std::mem::take(
+                &mut created
+                    .system_mut()
+                    .get_data_mut::<GuardGatesData>()
+                    .unwrap()
+                    .gates,
+            );
+            let existing_guard = existing
+                .system_mut()
+                .get_data_mut::<GuardGatesData>()
+                .unwrap();
+            existing_guard.gates.extend(new_gates);
+            (existing_guard.shared_flag.clone(), existing)
+        } else {
+            (shared_flag, guard_node_created)
+        };
+
+        guard_nodes.push((set_identity, flag, guard_node));
     }
+
     for node in schedule_systems.iter_mut() {
         let sys = node.system_mut();
         let guard_ids: Vec<Box<dyn SystemIdentity>> = guard_nodes

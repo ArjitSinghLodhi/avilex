@@ -18,11 +18,25 @@ pub struct RunConditionsList {
 }
 
 impl RunConditionsList {
-    /// Returns a slice of all registered [`ConditionFn`] predicates.
+    /// Returns a reference of the Vec  of all registered [`ConditionFn`] predicates.
     ///
     /// [`ConditionFn`]: crate::app::system::condition::ConditionFn
     pub fn conditions(&self) -> &Vec<ConditionFn> {
         &self.runtime_gates
+    }
+
+    /// Returns a mutable reference to the Vec of [`ConditionFn`] predicates
+    ///
+    /// [`ConditionFn`]: crate::app::system::condition::ConditionFn
+    pub fn conditions_mut(&mut self) -> &mut Vec<ConditionFn> {
+        &mut self.runtime_gates
+    }
+
+    /// Gives the Vec of [`ConditionFn`] predicates by value.
+    ///
+    /// [`ConditionFn`]: crate::app::system::condition::ConditionFn
+    pub fn take_conditions(self) -> Vec<ConditionFn> {
+        self.runtime_gates
     }
 
     /// Inserts a [`ConditionFn`] predicate at `index`.
@@ -105,5 +119,17 @@ where
     move |world: &World| match <ParallelResourceAccessor<R> as SystemParam>::get_param(world) {
         Ok(resource_accessor) => resource_accessor.is_present(),
         Err(_) => false,
+    }
+}
+
+impl<F> Condition<()> for F
+where
+    F: Send + Sync + 'static,
+    F: Fn() -> bool,
+{
+    fn init_condition_access() {}
+
+    fn run(&self, _world: &World) -> bool {
+        self()
     }
 }

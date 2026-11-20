@@ -18,7 +18,7 @@ pub fn derive_system_set_impl(input: TokenStream) -> TokenStream {
                 gates: Vec<avilex::app::system::condition::ConditionFn>,
                 shared_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
             ) -> avilex::app::system::SystemNode<(), ()> {
-                avilex::app::system::SystemNode::<(), ()>::new(avilex::app::system::system_set::GuardNode::<Self>::new(self.dyn_clone(), gates, shared_flag))
+                avilex::app::system::SystemNode::<(), ()>::new(avilex::app::system::system_set::GuardNode::new(self.dyn_clone(), gates, shared_flag))
             }
         }
     };
