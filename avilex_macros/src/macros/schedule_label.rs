@@ -13,20 +13,17 @@ pub fn derive_schedule_label_impl(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error().into(),
     };
 
-    let executor_instantiation = match args.default_executor {
-        Some(executor_expr) => quote! {
-            (#executor_expr)(self).into()
-        },
-        None => quote! {
-            Box::new(avilex::app::schedule::MultiThreadedExecutor::new())
-        },
-    };
+    let default_executor_fn = args.default_executor.map(|executor_expr| {
+        quote! {
+            fn default_executor(&self) -> Box<dyn avilex::app::schedule::SystemExecutor> {
+                avilex::app::schedule::IntoDefaultExecutor::into_executor(#executor_expr, self)
+            }
+        }
+    });
 
     let expanded = quote! {
         impl #impl_generics avilex::app::schedule::ScheduleLabel for #name #ty_generics #where_clause {
-            fn default_executor(&mut self) -> Box<dyn avilex::app::schedule::SystemExecutor> {
-                #executor_instantiation
-            }
+            #default_executor_fn
 
             fn dyn_clone(&self) -> Box<dyn avilex::app::schedule::ScheduleLabel> {
                 Box::new(self.clone())

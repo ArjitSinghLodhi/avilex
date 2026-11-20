@@ -8,21 +8,31 @@ use crate::{
 
 /// The [`ScheduleLabel`] that runs once at application startup before the main frame loop begins.
 ///
-/// Queued commands and entity despawns are flushed after each individual system runs in this
-/// schedule.
+/// Uses [`StartupExecutor`] as its default [`SystemExecutor`]; see its documentation for details
+/// on how systems, commands, and despawns are executed during startup.
 ///
 /// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+/// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+/// [`StartupExecutor`]: crate::app::schedule::StartupExecutor
 #[derive(ScheduleLabel, Clone, PartialEq, Debug)]
-#[schedule_label(default_executor = StartupExecutor::new)]
+#[schedule_label(default_executor = StartupExecutor)]
 pub struct Startup;
 
-pub(crate) struct StartupExecutor;
-
-impl StartupExecutor {
-    fn new(_label: &mut Startup) -> Self {
-        Self
-    }
-}
+/// The default [`SystemExecutor`] used by the [`Startup`] schedule.
+///
+/// Executes each eligible system sequentially in registration order. After every individual
+/// system runs, queued commands ([`World::apply_queue_commands`]) and entity despawns
+/// ([`World::apply_despawns`]) are flushed immediately so subsequent startup systems can observe
+/// those changes.
+///
+/// System errors are forwarded to the [`SystemErrorHandler`] resource if present, falling back to
+/// [`default_system_error_handler`].
+///
+/// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+/// [`SystemErrorHandler`]: crate::app::system::system_error::SystemErrorHandler
+/// [`default_system_error_handler`]: crate::app::system::system_error::default_system_error_handler
+#[derive(Default)]
+pub struct StartupExecutor;
 
 impl SystemExecutor for StartupExecutor {
     fn init(&mut self, _schedule: &mut SystemsSchedule) {}

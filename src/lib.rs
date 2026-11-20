@@ -349,11 +349,13 @@ pub mod app {
     /// [`Last`]: crate::app::schedule::Last
     pub mod schedule {
         pub use crate::schedule::{
-            DefaultSchedulesPlugin, First, Last, PostUpdate, PreUpdate, Schedule, ScheduleLabel,
-            Startup, SystemsSchedule, Update,
+            DefaultSchedulesPlugin, IntoDefaultExecutor, Schedule, ScheduleLabel, SystemsSchedule,
             executors::SystemExecutor,
             executors::{
                 multi_threaded::MultiThreadedExecutor, single_threaded::SingleThreadedExecutor,
+            },
+            schedules_list::{
+                First, Last, PostUpdate, PreUpdate, Startup, StartupExecutor, Update,
             },
         };
     }

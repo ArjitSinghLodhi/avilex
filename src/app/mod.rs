@@ -7,8 +7,8 @@ use crate::{
     app_impl::plugin::PluginGroup,
     resources::Resource,
     schedule::{
-        DefaultSchedulesPlugin, Schedule, ScheduleConstraint, ScheduleLabel, Startup,
-        schedule_sorter::sort_schedules,
+        DefaultSchedulesPlugin, Schedule, ScheduleConstraint, ScheduleLabel,
+        schedule_sorter::sort_schedules, schedules_list::Startup,
     },
     states::{States, setup_states_schedules_and_systems},
     system::{

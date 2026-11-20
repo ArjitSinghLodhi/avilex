@@ -2,6 +2,7 @@ use crate::{
     app::{App, dyn_traits::DynEq, plugin::Plugin, system::SystemExt},
     schedule::{
         executors::{SystemExecutor, multi_threaded::MultiThreadedExecutor},
+        schedules_list::{First, Last, PostUpdate, PreUpdate, Update},
         system_sorter::sort_schedule_systems,
     },
     system::{
@@ -17,10 +18,8 @@ use crate::{
 pub(crate) mod dyn_eq;
 pub(crate) mod executors;
 pub(crate) mod schedule_sorter;
-mod schedules_list;
+pub(crate) mod schedules_list;
 pub(crate) mod system_sorter;
-
-pub use schedules_list::{First, Last, PostUpdate, PreUpdate, Startup, Update};
 
 use std::{any::Any, fmt::Debug};
 
@@ -50,7 +49,7 @@ impl Plugin for DefaultSchedulesPlugin {
     }
 }
 
-/// A marker trait used to identify and configure a [`Schedule`].
+/// A trait used to identify and configure a [`Schedule`].
 ///
 /// Derive this using `#[derive(ScheduleLabel, Clone, PartialEq, Debug)]`.
 ///
@@ -63,7 +62,7 @@ pub trait ScheduleLabel: Any + Send + Sync + DynEq + Debug + 'static {
     /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
     /// [`Schedule`]: crate::app::schedule::Schedule
     /// [`MultiThreadedExecutor`]: crate::app::schedule::MultiThreadedExecutor
-    fn default_executor(&mut self) -> Box<dyn SystemExecutor> {
+    fn default_executor(&self) -> Box<dyn SystemExecutor> {
         Box::new(MultiThreadedExecutor::new())
     }
 
@@ -127,7 +126,7 @@ impl Schedule {
     ///
     /// [`Schedule`]: Self
     /// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
-    pub fn new_boxed(mut label: Box<dyn ScheduleLabel>) -> Self {
+    pub fn new_boxed(label: Box<dyn ScheduleLabel>) -> Self {
         Self {
             executor: label.default_executor(),
             label,
@@ -396,5 +395,84 @@ pub(crate) fn deduplicate_orderings(
             dedup_identities(&mut orderings.run_after_systems);
             dedup_identities(&mut orderings.run_before_systems);
         }
+    }
+}
+
+/// Converts a [`SystemExecutor`] instance or factory function into a boxed [`SystemExecutor`]
+/// for a [`ScheduleLabel`].
+///
+/// This trait is primarily used by the `#[derive(ScheduleLabel)]` macro when the
+/// `#[schedule_label(default_executor = ...)]` attribute is specified.
+///
+/// # Supported Inputs
+///
+/// - Any concrete [`SystemExecutor`] value directly (such as unit structs like `StartupExecutor`
+///   or pre-configured executor instances).
+/// - Any callable (`FnOnce`) taking `()`, `&L` (the concrete label), or `&dyn ScheduleLabel`
+///   (a trait-object reference to the label), returning either a concrete `E: SystemExecutor`
+///   (automatically boxed) or an already-boxed `Box<dyn SystemExecutor>`.
+///
+/// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+/// [`ScheduleLabel`]: crate::app::schedule::ScheduleLabel
+pub trait IntoDefaultExecutor<L: ScheduleLabel + ?Sized, Marker: ?Sized> {
+    /// Converts `self` (or invokes it with `label`) into a boxed [`SystemExecutor`].
+    ///
+    /// [`SystemExecutor`]: crate::app::schedule::SystemExecutor
+    fn into_executor(self, label: &L) -> Box<dyn SystemExecutor>;
+}
+
+impl<L: ScheduleLabel + ?Sized, E: SystemExecutor>
+    IntoDefaultExecutor<L, dyn SystemExecutor> for E
+{
+    fn into_executor(self, _label: &L) -> Box<dyn SystemExecutor> {
+        Box::new(self)
+    }
+}
+
+impl<L: ScheduleLabel + ?Sized, F: FnOnce() -> E, E: SystemExecutor>
+    IntoDefaultExecutor<L, ()> for F
+{
+    fn into_executor(self, _label: &L) -> Box<dyn SystemExecutor> {
+        Box::new((self)())
+    }
+}
+
+impl<L: ScheduleLabel + ?Sized, F: FnOnce() -> Box<dyn SystemExecutor>>
+    IntoDefaultExecutor<L, ((), Box<dyn SystemExecutor>)> for F
+{
+    fn into_executor(self, _label: &L) -> Box<dyn SystemExecutor> {
+        (self)()
+    }
+}
+
+impl<L: ScheduleLabel + ?Sized, F: FnOnce(&L) -> E, E: SystemExecutor>
+    IntoDefaultExecutor<L, &L> for F
+{
+    fn into_executor(self, label: &L) -> Box<dyn SystemExecutor> {
+        Box::new((self)(label))
+    }
+}
+
+impl<L: ScheduleLabel + ?Sized, F: FnOnce(&L) -> Box<dyn SystemExecutor>>
+    IntoDefaultExecutor<L, (&L, Box<dyn SystemExecutor>)> for F
+{
+    fn into_executor(self, label: &L) -> Box<dyn SystemExecutor> {
+        (self)(label)
+    }
+}
+
+impl<L: ScheduleLabel, F: FnOnce(&dyn ScheduleLabel) -> E, E: SystemExecutor>
+    IntoDefaultExecutor<L, &dyn ScheduleLabel> for F
+{
+    fn into_executor(self, label: &L) -> Box<dyn SystemExecutor> {
+        Box::new((self)(label))
+    }
+}
+
+impl<L: ScheduleLabel, F: FnOnce(&dyn ScheduleLabel) -> Box<dyn SystemExecutor>>
+    IntoDefaultExecutor<L, (&dyn ScheduleLabel, Box<dyn SystemExecutor>)> for F
+{
+    fn into_executor(self, label: &L) -> Box<dyn SystemExecutor> {
+        (self)(label)
     }
 }

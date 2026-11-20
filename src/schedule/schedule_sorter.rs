@@ -1,4 +1,4 @@
-use crate::schedule::{Schedule, ScheduleConstraint, Startup};
+use crate::schedule::{Schedule, ScheduleConstraint, schedules_list::Startup};
 use std::collections::VecDeque;
 
 enum SchedulesSortingError {
