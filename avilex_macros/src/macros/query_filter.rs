@@ -75,11 +75,11 @@ pub fn derive_filter_impl(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl #impl_generics ::avilex::ecs::query::filter::QueryFilter for #name #ty_generics #where_clause {
-            type FilterData<'w> = (
-                #( <#field_types as ::avilex::ecs::query::filter::QueryFilter>::FilterData<'w>, )*
+            type FilterData = (
+                #( <#field_types as ::avilex::ecs::query::filter::QueryFilter>::FilterData, )*
             );
 
-            fn init_filter_data<'w>(archetype: &::avilex::ecs::world::archetypes::Archetype) -> Self::FilterData<'w> {
+            fn init_filter_data(archetype: &::avilex::ecs::world::archetypes::Archetype) -> Self::FilterData {
                 (
                     #( <#field_types as ::avilex::ecs::query::filter::QueryFilter>::init_filter_data(archetype), )*
                 )
@@ -90,7 +90,7 @@ pub fn derive_filter_impl(input: TokenStream) -> TokenStream {
                 #( <#field_types as ::avilex::ecs::query::filter::QueryFilter>::matches(archetype))&&*
             }
 
-            fn matches_row<'w>(filter_data: &Self::FilterData<'w>, row_idx: usize) -> bool {
+            fn matches_row(filter_data: &Self::FilterData, row_idx: usize) -> bool {
                 #[allow(non_snake_case)]
                 let ( #( #scratch_idents, )* ) = filter_data;
                 #( <#field_types as ::avilex::ecs::query::filter::QueryFilter>::matches_row(#scratch_idents, row_idx) )&&*

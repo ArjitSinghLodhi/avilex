@@ -121,14 +121,14 @@ impl<T: Component> AddedState<T> {
 pub struct Added<T: Component>(std::marker::PhantomData<T>);
 
 impl<T: Component> QueryFilter for Added<T> {
-    type FilterData<'w> = ComponentColumnRead<'w, AddedState<T>>;
-    fn init_filter_data<'w>(archetype: &Archetype) -> Self::FilterData<'w> {
+    type FilterData = ComponentColumnRead<AddedState<T>>;
+    fn init_filter_data(archetype: &Archetype) -> Self::FilterData {
         archetype.column::<AddedState<T>>()
     }
     fn matches(archetype: &Archetype) -> bool {
         archetype.contains_column::<T>()
     }
-    fn matches_row<'w>(filter_data: &Self::FilterData<'w>, row_idx: usize) -> bool {
+    fn matches_row(filter_data: &Self::FilterData, row_idx: usize) -> bool {
         unsafe { (*filter_data.as_ptr().add(row_idx)).read }
     }
     fn collect_filter(
@@ -173,7 +173,7 @@ impl<T: Component> AddedTracker<T> {
 impl<T: Component> QueryData for AddedTracker<T> {
     type Item<'w> = AddedTracker<T>;
     type ReadOnlyItem<'w> = AddedTracker<T>;
-    type Fetch<'w> = ComponentColumnRead<'w, AddedState<T>>;
+    type Fetch = ComponentColumnRead<AddedState<T>>;
     fn collect_access(
         reads: &mut AccessVec<std::any::TypeId>,
         _writes: &mut AccessVec<std::any::TypeId>,
@@ -184,11 +184,11 @@ impl<T: Component> QueryData for AddedTracker<T> {
     fn matches(archetype: &Archetype) -> bool {
         archetype.contains_column::<T>()
     }
-    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch(archetype: &Archetype) -> Self::Fetch {
         archetype.column::<AddedState<T>>()
     }
 
-    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+    unsafe fn fetch_mut<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::Item<'a> {
         let marker_ref = unsafe { &*fetch.as_ptr().add(index) };
         let added = marker_ref.read;
         AddedTracker {
@@ -197,10 +197,7 @@ impl<T: Component> QueryData for AddedTracker<T> {
         }
     }
 
-    unsafe fn fetch_read_only<'w, 'b>(
-        fetch: &Self::Fetch<'b>,
-        index: usize,
-    ) -> Self::ReadOnlyItem<'w> {
+    unsafe fn fetch_read_only<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::ReadOnlyItem<'a> {
         let marker_ref = unsafe { &(*fetch.as_ptr().add(index)) };
         let added = marker_ref.read;
         AddedTracker {

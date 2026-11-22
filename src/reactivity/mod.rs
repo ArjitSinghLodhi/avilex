@@ -24,7 +24,7 @@ pub(crate) fn verify_app_not_built_yet<'a>(context: &str) -> RwLockReadGuard<'a,
 pub(crate) struct TrackedComponentMeta {
     pub(crate) marker_id: TypeId,
     pub(crate) create_marker_column: fn() -> ComponentColumn,
-    pub(crate) push_default_marker: unsafe fn(&mut ComponentColumn),
+    pub(crate) push_default_marker: unsafe fn(&ComponentColumn),
     pub(crate) clear_column_states: unsafe fn(&mut dyn Any),
 }
 

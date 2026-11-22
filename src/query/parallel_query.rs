@@ -19,9 +19,10 @@ use crate::{
 /// allowing them to concurrently read or modify component data arrays completely out-of-band.
 ///
 /// # Concurrency & Performance
-/// **All data retrieval and structural handle operations are 100% thread-safe and lock-free.** Background
-/// tasks can invoke random slot lookups, clone [`Entity`] handles, or update component states simultaneously
-/// across multiple threads without requiring manual synchronization or application-level locks.
+/// **All data retrieval and structural handle operations are 100% thread-safe and automatically synchronized.**
+/// Background tasks can invoke random slot lookups, clone [`Entity`] handles, or update component states
+/// simultaneously across multiple threads without requiring manual synchronization primitives—the engine
+/// acquires fine-grained per-column [`RwLock`] guards for the duration of each [`scope`](Self::scope).
 ///
 /// # Initialization Requirement
 /// This handle is sourced via [`World::par_query_accessor`] (or as a [`SystemParam`]). **If** the accessor
@@ -40,6 +41,7 @@ use crate::{
 ///   path will cause a thread freeze due to nested acquisition of the underlying column-level locks.
 ///
 /// [`Entity`]: crate::ecs::entity::Entity
+/// [`RwLock`]: parking_lot::RwLock
 /// [`World::par_query_accessor`]: crate::ecs::world::World::par_query_accessor
 /// [`SystemParam`]: crate::app::system::SystemParam
 /// [`Changed<T>`]: crate::ecs::reactivity::changed::Changed

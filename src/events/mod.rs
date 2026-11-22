@@ -182,7 +182,7 @@ impl<'w, T: Event> EventReader<'w, T> {
 
         (0..len)
             .into_par_iter()
-            .map(move |idx| unsafe { queue.get(idx).expect("Index should be within bounds") })
+            .map(move |index| unsafe { queue.get(index).expect("Index should be within bounds") })
     }
 }
 

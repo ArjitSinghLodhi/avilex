@@ -133,7 +133,17 @@ type RunnerFn = Box<dyn FnOnce(&mut App) + 'static>;
 ///
 /// # Example
 /// ```rust
-#[doc = include_str!("../../examples/01_hello_world.rs")]
+/// use avilex::prelude::*;
+///
+/// fn main() {
+///     App::new()
+///         .add_systems(Update, hello_world_system)
+///         .run();
+/// }
+///
+/// fn hello_world_system() {
+///     println!("Hello, world!");
+/// }
 /// ```
 ///
 /// [`World`]: crate::ecs::world::World
@@ -462,7 +472,7 @@ impl App {
     /// manually.
     ///
     /// # Panics
-    /// Panics if called from inside [`Plugin::build`], before [`App::build`], or if
+    /// Panics if called while building a [`Plugin`] inside [`App::add_plugins`], before [`App::build`], or if
     /// [`App::run_startup`] has already been called.
     ///
     /// [`Startup`]: crate::app::schedule::Startup
@@ -471,6 +481,7 @@ impl App {
     /// [`App`]: crate::app::App
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
     /// [`App::run_startup`]: Self::run_startup
+    /// [`App::add_plugins`]: Self::add_plugins
     pub fn run_startup(&mut self) -> &mut Self {
         if self.is_building_plugins() {
             panic!(
@@ -495,7 +506,7 @@ impl App {
     /// double-buffered event and reactivity queues.
     ///
     /// # Panics
-    /// Panics if called from inside [`Plugin::build`], before [`App::build`], or before
+    /// Panics if called while building a [`Plugin`] inside [`App::add_plugins`], before [`App::build`], or before
     /// [`App::run_startup`].
     ///
     /// [`App`]: crate::app::App
@@ -503,6 +514,7 @@ impl App {
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
     /// [`App::build`]: Self::build
     /// [`App::run_startup`]: Self::run_startup
+    /// [`App::add_plugins`]: Self::add_plugins
     pub fn update(&mut self) {
         if self.is_building_plugins() {
             panic!(
@@ -527,7 +539,7 @@ impl App {
     /// [`App::update`], unless a custom runner was installed via [`App::set_runner`].
     ///
     /// # Panics
-    /// Panics if called from inside [`Plugin::build`].
+    /// Panics if called while building a [`Plugin`] inside [`App::add_plugins`].
     ///
     /// [`App`]: crate::app::App
     /// [`App::build`]: Self::build
@@ -535,6 +547,7 @@ impl App {
     /// [`App::update`]: Self::update
     /// [`App::set_runner`]: Self::set_runner
     /// [`Plugin::build`]: crate::app::plugin::Plugin::build
+    /// [`App::add_plugins`]: Self::add_plugins
     pub fn run(&mut self) {
         if self.is_building_plugins() {
             panic!(
@@ -669,13 +682,6 @@ impl App {
         self
     }
 
-    fn configuration(&mut self) -> &mut ConfigurationContext {
-        &mut self.configuration_context
-    }
-    fn configuration_ref(&self) -> &ConfigurationContext {
-        &self.configuration_context
-    }
-
     /// Returns a shared reference to the underlying [`World`].
     ///
     /// [`World`]: crate::ecs::world::World
@@ -688,6 +694,13 @@ impl App {
     /// [`World`]: crate::ecs::world::World
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
+    }
+
+    fn configuration(&mut self) -> &mut ConfigurationContext {
+        &mut self.configuration_context
+    }
+    fn configuration_ref(&self) -> &ConfigurationContext {
+        &self.configuration_context
     }
 }
 

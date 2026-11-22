@@ -145,7 +145,7 @@ impl<T: ComponentBundle, I: Iterator<Item = T> + Send + 'static> Command
             };
 
             let row_idx = arch.entities.read().len() - 1;
-            initialize_spawn_states(&tracked_components_guard, &mut arch.columns);
+            initialize_spawn_states(&tracked_components_guard, &arch.columns);
             unsafe { components.insert_to_archetype(&mut arch, row_idx) };
             spawned_entities.push(entity);
         }
@@ -293,7 +293,7 @@ impl Command for DespawnCommand {
         }
         unsafe {
             let cols = &mut arch.columns;
-            for col in cols.values_mut() {
+            for col in cols.values() {
                 col.data
                     .write()
                     .swap_remove_erased(current_target_idx as usize);
@@ -727,12 +727,12 @@ fn create_subtraction_archetype<T: ComponentBundle>(
 
 #[inline(always)]
 unsafe fn move_matching_columns(
-    src: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
-    dst: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    src: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    dst: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
     row_idx: usize,
 ) {
-    for (type_id, old_col) in src.iter_mut() {
-        if let Some(new_col) = dst.get_mut(type_id) {
+    for (type_id, old_col) in src.iter() {
+        if let Some(new_col) = dst.get(type_id) {
             let mut data_guard = new_col.data.write();
             let dst_ptr = &mut **data_guard as *mut dyn AnyColumn;
             unsafe { old_col.data.write().move_row_erased(row_idx, dst_ptr) };
@@ -743,11 +743,11 @@ unsafe fn move_matching_columns(
 #[inline(always)]
 unsafe fn erase_subtracted_columns(
     ids: &[TypeId],
-    columns: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    columns: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
     row_idx: usize,
 ) {
     for id in ids {
-        if let Some(col) = columns.get_mut(id) {
+        if let Some(col) = columns.get(id) {
             unsafe { col.data.write().swap_remove_erased(row_idx) };
         }
     }
@@ -776,11 +776,11 @@ fn initialize_spawn_states(
         '_,
         IndexMap<TypeId, Vec<TrackedComponentMeta>, FxBuildHasher>,
     >,
-    columns: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    columns: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
 ) {
     for meta_list in tracked_components_guard.values() {
         for meta in meta_list {
-            if let Some(marker_column) = columns.get_mut(&meta.marker_id) {
+            if let Some(marker_column) = columns.get(&meta.marker_id) {
                 unsafe { (meta.push_default_marker)(marker_column) };
             }
         }
@@ -806,7 +806,7 @@ fn initialize_missing_archetype_states(
 unsafe fn migrate_addition_states(
     old_types: &IndexSet<TypeId, FxBuildHasher>,
     incoming_ids: &[TypeId],
-    new_cols: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    new_cols: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
 ) {
     let tracked = TRACKED_COMPONENTS.lock();
 
@@ -816,7 +816,7 @@ unsafe fn migrate_addition_states(
                 if new_cols.contains_key(&meta.marker_id) {
                     if old_types.contains(&meta.marker_id) {
                         continue;
-                    } else if let Some(marker_column) = new_cols.get_mut(&meta.marker_id) {
+                    } else if let Some(marker_column) = new_cols.get(&meta.marker_id) {
                         unsafe { (meta.push_default_marker)(marker_column) };
                     }
                 }
@@ -829,7 +829,7 @@ unsafe fn migrate_addition_states(
 unsafe fn erase_subtracted_states(
     old_types: &IndexSet<TypeId, FxBuildHasher>,
     new_types: &IndexSet<TypeId, FxBuildHasher>,
-    old_cols: &mut IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+    old_cols: &IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
     row_idx: usize,
 ) {
     let tracked = TRACKED_COMPONENTS.lock();
@@ -837,7 +837,7 @@ unsafe fn erase_subtracted_states(
         for meta in meta_list {
             if old_types.contains(&meta.marker_id)
                 && !new_types.contains(&meta.marker_id)
-                && let Some(marker_col) = old_cols.get_mut(&meta.marker_id)
+                && let Some(marker_col) = old_cols.get(&meta.marker_id)
             {
                 unsafe { marker_col.data.write().swap_remove_erased(row_idx) };
             }

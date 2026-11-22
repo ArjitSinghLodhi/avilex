@@ -1,3 +1,3 @@
 # Avilex macros
 
-a helper crate for the main avilex framework.
+a helper macros crate for the main avilex framework.

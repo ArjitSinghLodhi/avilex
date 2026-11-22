@@ -124,7 +124,7 @@ impl<T: Component> ChangedTracker<T> {
 impl<T: Component> QueryData for ChangedTracker<T> {
     type Item<'w> = ChangedTracker<T>;
     type ReadOnlyItem<'w> = ChangedTracker<T>;
-    type Fetch<'w> = ComponentColumnRead<'w, ChangedState<T>>;
+    type Fetch = ComponentColumnRead<ChangedState<T>>;
 
     fn matches(archetype: &Archetype) -> bool {
         archetype.contains_column::<T>()
@@ -138,14 +138,11 @@ impl<T: Component> QueryData for ChangedTracker<T> {
         register_changed_tracked_component::<T>();
     }
 
-    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch(archetype: &Archetype) -> Self::Fetch {
         archetype.column::<ChangedState<T>>()
     }
 
-    unsafe fn fetch_read_only<'w, 'b>(
-        fetch: &Self::Fetch<'b>,
-        index: usize,
-    ) -> Self::ReadOnlyItem<'w> {
+    unsafe fn fetch_read_only<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::ReadOnlyItem<'a> {
         let marker_ref = unsafe { &(*fetch.as_ptr().add(index)) };
         let changed = marker_ref.read;
         ChangedTracker {
@@ -154,7 +151,7 @@ impl<T: Component> QueryData for ChangedTracker<T> {
         }
     }
 
-    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+    unsafe fn fetch_mut<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::Item<'a> {
         let marker_ref = unsafe { &(*fetch.as_ptr().add(index)) };
         let changed = marker_ref.read;
         ChangedTracker {
@@ -249,10 +246,10 @@ impl<'w, T: Component> std::ops::DerefMut for ChangedRefMut<'w, T> {
     }
 }
 
-impl<T: Component> QueryData for ChangedRefMut<'_, T> {
+impl<'b, T: Component> QueryData for ChangedRefMut<'b, T> {
     type Item<'w> = ChangedRefMut<'w, T>;
     type ReadOnlyItem<'w> = ChangedRef<'w, T>;
-    type Fetch<'w> = <&'w mut T as QueryData>::Fetch<'w>;
+    type Fetch = <&'b mut T as QueryData>::Fetch;
 
     fn matches(archetype: &Archetype) -> bool {
         <&mut T as QueryData>::matches(archetype)
@@ -266,12 +263,12 @@ impl<T: Component> QueryData for ChangedRefMut<'_, T> {
         register_changed_tracked_component::<T>();
     }
 
-    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w> {
+    fn init_fetch(archetype: &Archetype) -> Self::Fetch {
         <&mut T as QueryData>::init_fetch(archetype)
     }
 
     #[inline(always)]
-    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+    unsafe fn fetch_mut<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::Item<'a> {
         let mut_item = unsafe { <&mut T as QueryData>::fetch_mut(fetch, index) };
         let changed = unsafe { (&*mut_item.changed_state).read };
         ChangedRefMut {
@@ -280,10 +277,7 @@ impl<T: Component> QueryData for ChangedRefMut<'_, T> {
         }
     }
 
-    unsafe fn fetch_read_only<'w, 'b>(
-        fetch: &Self::Fetch<'b>,
-        index: usize,
-    ) -> Self::ReadOnlyItem<'w> {
+    unsafe fn fetch_read_only<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::ReadOnlyItem<'a> {
         let read_only_item = unsafe { <&mut T as QueryData>::fetch_read_only(fetch, index) };
         let changed = unsafe { (&*fetch.1.as_ref().unwrap().as_ptr().add(index)).read };
         let tracker = ChangedTracker::<T> {
@@ -322,16 +316,16 @@ impl<T: Component> QueryData for ChangedRefMut<'_, T> {
 pub struct Changed<T: Component>(std::marker::PhantomData<T>);
 
 impl<T: Component> QueryFilter for Changed<T> {
-    type FilterData<'w> = ComponentColumnRead<'w, ChangedState<T>>;
+    type FilterData = ComponentColumnRead<ChangedState<T>>;
     fn matches(archetype: &Archetype) -> bool {
         archetype.contains_column::<T>()
     }
 
-    fn init_filter_data<'w>(archetype: &Archetype) -> Self::FilterData<'w> {
+    fn init_filter_data(archetype: &Archetype) -> Self::FilterData {
         archetype.column::<ChangedState<T>>()
     }
 
-    fn matches_row<'w>(filter_data: &Self::FilterData<'w>, row_idx: usize) -> bool {
+    fn matches_row(filter_data: &Self::FilterData, row_idx: usize) -> bool {
         unsafe { (*(filter_data.as_ptr().add(row_idx))).read }
     }
 

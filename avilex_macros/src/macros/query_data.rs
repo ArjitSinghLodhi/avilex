@@ -171,7 +171,7 @@ pub fn derive_query_data_impl(input: TokenStream) -> TokenStream {
         impl #impl_generics ::avilex::ecs::query::QueryData for #name #ty_generics #where_clause {
             type Item<'w> = #item_struct_name<'w>;
             type ReadOnlyItem<'w> = #readonly_item_name<'w>;
-            type Fetch<'w> = ( #( <#field_types as ::avilex::ecs::query::QueryData>::Fetch<'w>, )* );
+            type Fetch = ( #( <#field_types as ::avilex::ecs::query::QueryData>::Fetch, )* );
 
             #[inline(always)]
             fn matches(archetype: &::avilex::ecs::world::archetypes::Archetype) -> bool {
@@ -180,9 +180,9 @@ pub fn derive_query_data_impl(input: TokenStream) -> TokenStream {
             }
 
             #[inline(always)]
-            fn init_fetch<'w>(
-                archetype: &'w ::avilex::ecs::world::archetypes::Archetype,
-            ) -> Self::Fetch<'w> {
+            fn init_fetch(
+                archetype: &::avilex::ecs::world::archetypes::Archetype,
+            ) -> Self::Fetch {
                 ( #( <#field_types as ::avilex::ecs::query::QueryData>::init_fetch(archetype), )* )
             }
 
@@ -197,14 +197,14 @@ pub fn derive_query_data_impl(input: TokenStream) -> TokenStream {
             }
 
             #[inline(always)]
-            unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w> {
+            unsafe fn fetch_mut<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::Item<'a> {
                 unsafe {
                     #item_construction
                 }
             }
 
             #[inline(always)]
-            unsafe fn fetch_read_only<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::ReadOnlyItem<'w> {
+            unsafe fn fetch_read_only<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::ReadOnlyItem<'a> {
                 unsafe {
                     #readonly_item_construction
                 }

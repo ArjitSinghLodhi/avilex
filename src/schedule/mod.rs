@@ -421,16 +421,16 @@ pub trait IntoDefaultExecutor<L: ScheduleLabel + ?Sized, Marker: ?Sized> {
     fn into_executor(self, label: &L) -> Box<dyn SystemExecutor>;
 }
 
-impl<L: ScheduleLabel + ?Sized, E: SystemExecutor>
-    IntoDefaultExecutor<L, dyn SystemExecutor> for E
+impl<L: ScheduleLabel + ?Sized, E: SystemExecutor> IntoDefaultExecutor<L, dyn SystemExecutor>
+    for E
 {
     fn into_executor(self, _label: &L) -> Box<dyn SystemExecutor> {
         Box::new(self)
     }
 }
 
-impl<L: ScheduleLabel + ?Sized, F: FnOnce() -> E, E: SystemExecutor>
-    IntoDefaultExecutor<L, ()> for F
+impl<L: ScheduleLabel + ?Sized, F: FnOnce() -> E, E: SystemExecutor> IntoDefaultExecutor<L, ()>
+    for F
 {
     fn into_executor(self, _label: &L) -> Box<dyn SystemExecutor> {
         Box::new((self)())
@@ -445,8 +445,8 @@ impl<L: ScheduleLabel + ?Sized, F: FnOnce() -> Box<dyn SystemExecutor>>
     }
 }
 
-impl<L: ScheduleLabel + ?Sized, F: FnOnce(&L) -> E, E: SystemExecutor>
-    IntoDefaultExecutor<L, &L> for F
+impl<L: ScheduleLabel + ?Sized, F: FnOnce(&L) -> E, E: SystemExecutor> IntoDefaultExecutor<L, &L>
+    for F
 {
     fn into_executor(self, label: &L) -> Box<dyn SystemExecutor> {
         Box::new((self)(label))

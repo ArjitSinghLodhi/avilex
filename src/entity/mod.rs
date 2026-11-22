@@ -130,7 +130,7 @@ impl<'w> EntityRef<'w> {
     /// entity does not have component `T`.
     ///
     /// [`ComponentRef`]: crate::ecs::component::ComponentRef
-    pub fn get<'a, T: Component>(&'a self) -> Option<ComponentRef<'a, T>> {
+    pub fn get<T: Component>(&self) -> Option<ComponentRef<T>> {
         let entity_location_data_ptr = unsafe {
             let ptr = ENTITY_LOCATION_REGISTRY.data_ptr();
             (*ptr).as_ptr().add(self.entity.registry_index() as usize)
@@ -188,7 +188,7 @@ impl<'w> EntityMut<'w> {
     /// entity does not have component `T`.
     ///
     /// [`ComponentRef`]: crate::ecs::component::ComponentRef
-    pub fn get<'a, T: Component>(&'a self) -> Option<ComponentRef<'a, T>> {
+    pub fn get<T: Component>(&self) -> Option<ComponentRef<T>> {
         self.entity_ref.get::<T>()
     }
 
@@ -196,7 +196,7 @@ impl<'w> EntityMut<'w> {
     /// the entity does not have component `T`.
     ///
     /// [`ComponentMut`]: crate::ecs::component::ComponentMut
-    pub fn get_mut<'a, T: Component>(&'a self) -> Option<ComponentMut<'a, T>> {
+    pub fn get_mut<T: Component>(&self) -> Option<ComponentMut<T>> {
         let registry_read = ENTITY_LOCATION_REGISTRY.read();
         let entity_location_data_ptr = unsafe {
             registry_read

@@ -40,23 +40,15 @@ pub trait QueryData {
     type ReadOnlyItem<'w>: Send;
 
     /// Per-archetype state (such as column pointers or guards) initialized once before row iteration.
-    type Fetch<'w>: Sync;
+    type Fetch: Sync + 'static;
 
     /// Returns `true` if `archetype` contains all required component columns for this query data.
     ///
     /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
     fn matches(archetype: &Archetype) -> bool;
 
-    /// Initializes the per-archetype [`QueryData::Fetch`] state for `archetype`.
-    ///
-    /// # Safety
-    /// Implementations must guarantee that the returned `Self::Fetch` value contains valid,
-    /// initialized metadata, pointers, or references that remain valid for the duration of
-    /// the borrow layout. It must not lead to out-of-bounds memory access or invalid type casting.
-    ///
-    /// [`QueryData::Fetch`]: Self::Fetch
-    /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
-    fn init_fetch<'w>(archetype: &'w Archetype) -> Self::Fetch<'w>;
+    /// Initializes the per-archetype [`QueryData::Fetch`] state by acquiring the required guards.
+    fn init_fetch(archetype: &Archetype) -> Self::Fetch;
 
     /// Records all component [`TypeId`]s read or written by this query data into `reads` and `writes`.
     ///
@@ -72,7 +64,7 @@ pub trait QueryData {
     ///   is maintained globally (no aliasing reads or writes).
     ///
     /// [`QueryData::init_fetch`]: Self::init_fetch
-    unsafe fn fetch_mut<'w, 'b>(fetch: &Self::Fetch<'b>, index: usize) -> Self::Item<'w>;
+    unsafe fn fetch_mut<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::Item<'a>;
 
     /// Fetches the read-only query item at row `index` from `fetch`.
     ///
@@ -82,10 +74,7 @@ pub trait QueryData {
     /// * Shared access must be synchronized; no concurrent mutable borrows may exist for this item.
     ///
     /// [`QueryData::init_fetch`]: Self::init_fetch
-    unsafe fn fetch_read_only<'w, 'b>(
-        fetch: &Self::Fetch<'b>,
-        index: usize,
-    ) -> Self::ReadOnlyItem<'w>;
+    unsafe fn fetch_read_only<'a>(fetch: &'a Self::Fetch, index: usize) -> Self::ReadOnlyItem<'a>;
 }
 
 /// A read-only slice of rows within a single matched [`Archetype`], yielded by
@@ -93,14 +82,14 @@ pub trait QueryData {
 ///
 /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
 /// [`Query::par_chunks`]: crate::ecs::query::Query::par_chunks
-pub struct QueryReadOnlyChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
+pub struct QueryReadOnlyChunk<'b, Q: QueryData, F: QueryFilter> {
     start_idx: usize,
     end_idx: usize,
-    fetch: &'b Q::Fetch<'q>,
-    filter_data: &'b F::FilterData<'q>,
+    fetch: &'b Q::Fetch,
+    filter_data: &'b F::FilterData,
 }
 
-impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryReadOnlyChunk<'b, 'q, Q, F> {
+impl<'b, Q: QueryData, F: QueryFilter> QueryReadOnlyChunk<'b, Q, F> {
     /// Returns an [`Iterator`] over the matching read-only query items in this chunk.
     ///
     /// [`Iterator`]: std::iter::Iterator
@@ -118,14 +107,14 @@ impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryReadOnlyChunk<'b, 'q, Q, F> {
 ///
 /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
 /// [`Query::par_chunks_mut`]: crate::ecs::query::Query::par_chunks_mut
-pub struct QueryMutableChunk<'b, 'q, Q: QueryData, F: QueryFilter> {
+pub struct QueryMutableChunk<'b, Q: QueryData, F: QueryFilter> {
     start_idx: usize,
     end_idx: usize,
-    fetch: &'b Q::Fetch<'q>,
-    filter_data: &'b F::FilterData<'q>,
+    fetch: &'b Q::Fetch,
+    filter_data: &'b F::FilterData,
 }
 
-impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, 'q, Q, F> {
+impl<'b, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, Q, F> {
     /// Returns an [`Iterator`] over the matching read-only query items in this chunk.
     ///
     /// [`Iterator`]: std::iter::Iterator
@@ -153,12 +142,12 @@ impl<'b, 'q, Q: QueryData, F: QueryFilter> QueryMutableChunk<'b, 'q, Q, F> {
 ///
 /// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
 /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
-pub struct MatchedArchetypeData<'q, F: QueryFilter> {
+pub struct MatchedArchetypeData<F: QueryFilter> {
     row_count: usize,
-    filter_data: F::FilterData<'q>,
+    filter_data: F::FilterData,
 }
 
-impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
+impl<F: QueryFilter> MatchedArchetypeData<F> {
     /// Returns the number of entity rows stored in the matched [`Archetype`].
     ///
     /// [`Archetype`]: crate::ecs::world::archetypes::Archetype
@@ -172,7 +161,7 @@ impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
     ///
     /// [`QueryFilter::FilterData`]: crate::ecs::query::filter::QueryFilter::FilterData
     #[inline(always)]
-    pub fn filter_data(&self) -> &F::FilterData<'q> {
+    pub fn filter_data(&self) -> &F::FilterData {
         &self.filter_data
     }
 }
@@ -281,8 +270,8 @@ impl<'q, F: QueryFilter> MatchedArchetypeData<'q, F> {
 /// [`Query::get`]: Self::get
 /// [`Query::get_mut`]: Self::get_mut
 pub struct Query<'q, Q: QueryData, F: QueryFilter = ()> {
-    cached_fetches: Vec<Option<Q::Fetch<'q>>>,
-    cached_archetypes: Vec<Option<MatchedArchetypeData<'q, F>>>,
+    cached_fetches: Vec<Option<Q::Fetch>>,
+    cached_archetypes: Vec<Option<MatchedArchetypeData<F>>>,
     entity_location_registry_guard: RwLockReadGuard<'q, Vec<EntityLocationData>>,
 }
 
@@ -294,24 +283,18 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
     ) -> Self {
         let len = archetypes_map.len();
 
-        let mut cached_fetches = (0..len)
-            .map(|_| None)
-            .collect::<Vec<Option<Q::Fetch<'q>>>>();
+        let mut cached_fetches = (0..len).map(|_| None).collect::<Vec<Option<Q::Fetch>>>();
 
         let mut cached_archetypes = (0..len)
             .map(|_| None)
-            .collect::<Vec<Option<MatchedArchetypeData<'q, F>>>>();
+            .collect::<Vec<Option<MatchedArchetypeData<F>>>>();
 
         for arch_mutex in archetypes_map.iter() {
             let arch = arch_mutex.lock();
             let arch_id = arch.id() as usize;
 
             if Q::matches(&arch) && F::matches(&arch) {
-                let fetch = unsafe {
-                    std::mem::transmute::<<Q as QueryData>::Fetch<'_>, <Q as QueryData>::Fetch<'_>>(
-                        Q::init_fetch(&arch),
-                    )
-                };
+                let fetch = Q::init_fetch(&arch);
 
                 let filter_data = F::init_filter_data(&arch);
                 let row_count = arch.entities.read().len();
@@ -566,7 +549,7 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
     pub fn par_chunks<'b>(
         &'b self,
         chunk_size: usize,
-    ) -> impl ParallelIterator<Item = QueryReadOnlyChunk<'b, 'q, Q, F>> {
+    ) -> impl ParallelIterator<Item = QueryReadOnlyChunk<'b, Q, F>> {
         assert!(chunk_size > 0, "chunk_size must be non-zero");
         self.cached_archetypes
             .par_iter()
@@ -603,7 +586,7 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
     pub fn par_chunks_mut<'b>(
         &'b mut self,
         chunk_size: usize,
-    ) -> impl ParallelIterator<Item = QueryMutableChunk<'b, 'q, Q, F>> {
+    ) -> impl ParallelIterator<Item = QueryMutableChunk<'b, Q, F>> {
         assert!(chunk_size > 0, "chunk_size must be non-zero");
         let fetches = &self.cached_fetches;
         self.cached_archetypes
@@ -722,76 +705,69 @@ impl<'q, Q: QueryData, F: QueryFilter> Query<'q, Q, F> {
         }
     }
 
-    /// Returns a raw slice of the cached fetch states for each archetype.
+    /// Returns a slice of the cached per-archetype [`QueryData::Fetch`] states.
     ///
-    /// This provides direct access to the query's interior state tracking array. It allows
-    /// low-level frameworks or custom batch runners to bypass standard iteration loops.
+    /// Each slot index aligns 1:1 with the corresponding entry in
+    /// [`Self::get_matched_archetypes_metadata`]. Allows callers or custom batch runners to
+    /// bypass standard iteration loops and drive [`Self::fetch_read_only`] or [`Self::fetch_mut`]
+    /// directly. Slots for archetypes that do not match this query's data or filters are `None`.
     ///
-    /// # Safety
-    /// Calling this method is safe, but interacting with the slice contents is highly unsafe.
-    /// The caller must guarantee the following invariants:
-    ///
-    /// * **Aliasing Rules:** You must never invoke [`Self::fetch_mut`] concurrently on the same
-    ///   row index, or across overlapping rows from multiple threads.
-    /// * **Structural Modification:** The cached fetch tokens are only valid for the current frame.
-    ///   Any structural change (spawning, despawning, component insertions/removals) instantly
-    ///   invalidates these tokens.
-    /// * **Initialization Check:** You must explicitly check if the target `Option` is `Some`
-    ///   before unwrapping. Archetypes that do not match this query's filters will be `None`.
-    pub unsafe fn get_fetches(&self) -> &[Option<Q::Fetch<'q>>] {
+    /// [`QueryData::Fetch`]: crate::ecs::query::QueryData::Fetch
+    #[inline(always)]
+    pub fn get_fetches(&self) -> &[Option<Q::Fetch>] {
         &self.cached_fetches
     }
 
-    /// Returns a raw slice of the cached matched archetype metadata records.
+    /// Returns a slice of the cached [`MatchedArchetypeData`] records.
     ///
-    /// Provides low-level frameworks and custom batch runners with direct access to the
-    /// structural row bounds and dynamic filter states unified inside a single array.
+    /// Each slot index aligns 1:1 with the corresponding entry in [`Self::get_fetches`],
+    /// exposing the row counts and initialized [`QueryFilter::FilterData`] states for each
+    /// matched archetype. Slots for archetypes that do not match this query are `None`.
     ///
-    /// # Safety
-    /// Bypasses standard query safety boundaries entirely. The caller must guarantee:
-    ///
-    /// * **State Lifetime Invalidation:** The underlying filter records inside the matching configurations
-    ///   are transient structures valid only for the immediate frame context. You must never hold,
-    ///   cache, or propagate these references beyond the boundary of the current execution frame.
+    /// [`MatchedArchetypeData`]: crate::ecs::query::MatchedArchetypeData
+    /// [`QueryFilter::FilterData`]: crate::ecs::query::filter::QueryFilter::FilterData
     #[inline(always)]
-    pub unsafe fn get_matched_archetypes_metadata(&self) -> &[Option<MatchedArchetypeData<'q, F>>] {
+    pub fn get_matched_archetypes_metadata(&self) -> &[Option<MatchedArchetypeData<F>>] {
         &self.cached_archetypes
     }
 
-    /// Unsafely evaluates whether a specific row index within an archetype matches the query's filters.
+    /// Evaluates whether `index` within a matched archetype satisfies the query's [`QueryFilter`].
     ///
     /// # Safety
-    /// * The `filter_data` reference must be valid, initialized, and sourced directly from a matched element inside [`Self::get_matched_archetypes_metadata`].
-    /// * The `index` must be strictly less than the corresponding `row_count` exposed by that archetype's record.
+    /// * `filter_data` must be sourced from a `Some` entry in [`Self::get_matched_archetypes_metadata`].
+    /// * `index` must be strictly less than the corresponding [`MatchedArchetypeData::row_count`].
+    ///
+    /// [`QueryFilter`]: crate::ecs::query::filter::QueryFilter
+    /// [`MatchedArchetypeData::row_count`]: crate::ecs::query::MatchedArchetypeData::row_count
     #[inline(always)]
-    pub unsafe fn matches_row(&self, filter_data: &F::FilterData<'q>, index: usize) -> bool {
+    pub unsafe fn matches_row(&self, filter_data: &F::FilterData, index: usize) -> bool {
         F::matches_row(filter_data, index)
     }
 
-    /// Unsafely extracts an immutable item view from the provided fetch token at the specified dense row index.
+    /// Fetches a read-only query item at `index` from `fetch`.
     ///
     /// # Safety
-    /// * The `fetch` state must be valid, initialized (`Some`), and sourced directly from [`Self::get_fetches`].
-    /// * The `index` must be strictly less than the length of the target archetype's data rows.
-    /// * No mutable references ([`Self::fetch_mut`]) can be actively held for this row index on any thread.
+    /// * `fetch` must be sourced from a `Some` entry in [`Self::get_fetches`].
+    /// * `index` must be strictly less than the row count of the corresponding archetype.
+    /// * No mutable item ([`Self::fetch_mut`]) may be alive for `index` on any thread.
     #[inline(always)]
-    pub unsafe fn fetch_read_only<'w>(
-        &'w self,
-        fetch: &Q::Fetch<'w>,
+    pub unsafe fn fetch_read_only<'b>(
+        &'b self,
+        fetch: &'b Q::Fetch,
         index: usize,
-    ) -> Q::ReadOnlyItem<'w> {
+    ) -> Q::ReadOnlyItem<'b> {
         unsafe { Q::fetch_read_only(fetch, index) }
     }
 
-    /// Unsafely extracts a mutable item view from the provided fetch token at the specified dense row index.
+    /// Fetches a mutable query item at `index` from `fetch`.
     ///
     /// # Safety
-    /// * The `fetch` state must be valid, initialized (`Some`), and sourced directly from [`Self::get_fetches`].
-    /// * The `index` must be strictly less than the length of the target archetype's data rows.
-    /// * **Strict Aliasing Rule:** You must guarantee absolute exclusive access to this row. No other
-    ///   thread or task may hold a read-only or mutable reference to this exact element simultaneously.
+    /// * `fetch` must be sourced from a `Some` entry in [`Self::get_fetches`].
+    /// * `index` must be strictly less than the row count of the corresponding archetype.
+    /// * **Exclusive Row Access:** No other thread or caller may hold a read-only or mutable
+    ///   reference to `index` simultaneously.
     #[inline(always)]
-    pub unsafe fn fetch_mut<'w>(&'w self, fetch: &Q::Fetch<'w>, index: usize) -> Q::Item<'w> {
+    pub unsafe fn fetch_mut<'b>(&'b self, fetch: &'b Q::Fetch, index: usize) -> Q::Item<'b> {
         unsafe { Q::fetch_mut(fetch, index) }
     }
 }

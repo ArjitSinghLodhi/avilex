@@ -98,12 +98,12 @@ pub trait Component: Send + Sync + 'static {
 /// [`Component`]: crate::ecs::component::Component
 /// [`EntityRef::get`]: crate::ecs::entity::EntityRef::get
 /// [`EntityMut::get`]: crate::ecs::entity::EntityMut::get
-pub struct ComponentRef<'a, T: Component> {
-    pub(crate) _guard: ComponentColumnRead<'a, T>,
+pub struct ComponentRef<T: Component> {
+    pub(crate) _guard: ComponentColumnRead<T>,
     pub(crate) ptr: *const T,
 }
 
-impl<'a, T: Component> Deref for ComponentRef<'a, T> {
+impl<T: Component> Deref for ComponentRef<T> {
     type Target = T;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -120,13 +120,13 @@ impl<'a, T: Component> Deref for ComponentRef<'a, T> {
 /// [`Component`]: crate::ecs::component::Component
 /// [`EntityMut::get_mut`]: crate::ecs::entity::EntityMut::get_mut
 /// [`Mut<'a, T>`]: crate::ecs::reactivity::changed::Mut
-pub struct ComponentMut<'a, T: Component> {
-    pub(crate) _guard_val: ComponentColumnWrite<'a, T>,
-    pub(crate) _guard_marker: Option<ComponentColumnWrite<'a, ChangedState<T>>>,
-    pub(crate) item: Mut<'a, T>,
+pub struct ComponentMut<T: Component> {
+    pub(crate) _guard_val: ComponentColumnWrite<T>,
+    pub(crate) _guard_marker: Option<ComponentColumnWrite<ChangedState<T>>>,
+    pub(crate) item: Mut<'static, T>,
 }
 
-impl<'a, T: Component> Deref for ComponentMut<'a, T> {
+impl<T: Component> Deref for ComponentMut<T> {
     type Target = T;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -134,7 +134,7 @@ impl<'a, T: Component> Deref for ComponentMut<'a, T> {
     }
 }
 
-impl<'a, T: Component> DerefMut for ComponentMut<'a, T> {
+impl<T: Component> DerefMut for ComponentMut<T> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.item
