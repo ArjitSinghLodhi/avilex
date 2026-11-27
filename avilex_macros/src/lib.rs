@@ -42,7 +42,7 @@ pub fn derive_filter(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_derive(QueryData, attributes(query_data))]
-pub fn derive_world_query(input: TokenStream) -> TokenStream {
+pub fn derive_query_data(input: TokenStream) -> TokenStream {
     macros::query_data::derive_query_data_impl(input)
 }
 

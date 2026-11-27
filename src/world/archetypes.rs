@@ -22,7 +22,7 @@ use crate::{
 };
 
 pub(crate) trait AnyColumn: Any {
-    unsafe fn swap_remove_erased(&mut self, idx: usize);
+    fn swap_remove_erased(&mut self, idx: usize);
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn as_any(&self) -> &dyn Any;
     unsafe fn move_row_erased(&mut self, index: usize, dst: *mut dyn AnyColumn);
@@ -30,7 +30,7 @@ pub(crate) trait AnyColumn: Any {
 }
 
 impl<T: Component> AnyColumn for Vec<T> {
-    unsafe fn swap_remove_erased(&mut self, idx: usize) {
+    fn swap_remove_erased(&mut self, idx: usize) {
         self.swap_remove(idx);
     }
 
@@ -233,20 +233,18 @@ impl Deref for EntitiesRead {
 ///
 /// # Self-Contained Guards
 /// All entity and column accessors ([`entities`](Self::entities), [`column`](Self::column),
-/// [`column_mut`](Self::column_mut)) return `'static`, self-contained RAII guards backed by [`Arc`].
+/// [`column_mut`](Self::column_mut)) return `'static`, self-contained RAII guards backed by Arc.
 /// Callers can drop their borrow on `Archetype` immediately after acquiring a guard, store guards
 /// in structs, or send them across threads safely.
 ///
 /// # Deadlocks
-/// Each component column is guarded by an independent [`RwLock`]. Acquiring a write guard
+/// Each component column is guarded by an independent RwLock. Acquiring a write guard
 /// ([`column_mut`](Self::column_mut)) while holding any read or write guard for the **same**
 /// component type `T` on the same thread will deadlock. Accessing **different** component
 /// types (`T` and `U`) on the same archetype concurrently is safe.
 ///
 /// [`Component`]: crate::ecs::component::Component
 /// [`ComponentColumn`]: crate::ecs::world::archetypes::ComponentColumn
-/// [`Arc`]: std::sync::Arc
-/// [`RwLock`]: parking_lot::RwLock
 pub struct Archetype {
     pub(crate) id: ArchetypeId,
     pub(crate) types: IndexSet<TypeId, FxBuildHasher>,
@@ -262,14 +260,14 @@ impl Archetype {
     pub(crate) fn new(
         id: ArchetypeId,
         types: IndexSet<TypeId, FxBuildHasher>,
-        columns: IndexMap<TypeId, ComponentColumn, FxBuildHasher>,
+        columns: Arc<IndexMap<TypeId, ComponentColumn, FxBuildHasher>>,
         type_names: IndexSet<&'static str, FxBuildHasher>,
     ) -> Self {
         Self {
             id,
             types,
             entities: Arc::new(RwLock::new(Vec::new())),
-            columns: Arc::new(columns),
+            columns,
             type_names,
         }
     }
@@ -508,7 +506,7 @@ impl ArchetypeManager {
         let mut columns = IndexMap::with_capacity_and_hasher(types_set.len(), FxBuildHasher);
         setup_columns(&types_set, &mut columns);
 
-        let new_arch = Archetype::new(new_id, types_set, columns, types_names_set);
+        let new_arch = Archetype::new(new_id, types_set, Arc::new(columns), types_names_set);
 
         self.index.insert(order_independent_hash, new_id);
         self.archetypes.insert(new_id, Mutex::new(new_arch));
@@ -553,7 +551,7 @@ impl ArchetypeManager {
                 }
             }
         }
-        let new_arch = Archetype::new(new_id, types_set, columns, types_names_set);
+        let new_arch = Archetype::new(new_id, types_set, Arc::new(columns), types_names_set);
         self.index.insert(order_independent_hash, new_id);
         self.archetypes.insert(new_id, Mutex::new(new_arch));
         new_id

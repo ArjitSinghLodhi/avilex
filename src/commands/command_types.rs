@@ -291,13 +291,12 @@ impl Command for DespawnCommand {
                 (*swapped_entity_location_data_ptr).set_index(current_target_idx);
             }
         }
-        unsafe {
-            let cols = &mut arch.columns;
-            for col in cols.values() {
-                col.data
-                    .write()
-                    .swap_remove_erased(current_target_idx as usize);
-            }
+
+        let cols = &mut arch.columns;
+        for col in cols.values() {
+            col.data
+                .write()
+                .swap_remove_erased(current_target_idx as usize);
         }
 
         arch.entities
@@ -748,7 +747,7 @@ unsafe fn erase_subtracted_columns(
 ) {
     for id in ids {
         if let Some(col) = columns.get(id) {
-            unsafe { col.data.write().swap_remove_erased(row_idx) };
+            col.data.write().swap_remove_erased(row_idx);
         }
     }
 }
@@ -839,7 +838,7 @@ unsafe fn erase_subtracted_states(
                 && !new_types.contains(&meta.marker_id)
                 && let Some(marker_col) = old_cols.get(&meta.marker_id)
             {
-                unsafe { marker_col.data.write().swap_remove_erased(row_idx) };
+                marker_col.data.write().swap_remove_erased(row_idx);
             }
         }
     }

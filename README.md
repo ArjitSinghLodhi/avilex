@@ -1,4 +1,9 @@
-# Avilex
+# avilex
+
+[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/ArjitSinghLodhi/avilex#license)
+[![Crates.io](https://img.shields.io/crates/v/avilex.svg)](https://crates.io/crates/avilex)
+[![Downloads](https://img.shields.io/crates/d/avilex.svg)](https://crates.io/crates/avilex)
+[![Docs](https://docs.rs/avilex/badge.svg)](https://docs.rs/avilex/latest/avilex)
 
 A deterministic, concurrent Entity Component System (ECS) framework written in Rust, engineered for high-performance parallel workloads and out-of-band remote thread execution. 
 
