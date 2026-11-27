@@ -131,7 +131,7 @@ path = "examples/08_query_reactivity.rs"
 
 [[example]]
 name = "removal_tracking"
-path = "examples/9_removal_tracking.rs"
+path = "examples/09_removal_tracking.rs"
 
 [[example]]
 name = "derive"
